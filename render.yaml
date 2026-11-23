@@ -1,0 +1,31 @@
+# Render Blueprint (E9-D1b / ADR 0012) - Deploy gratuito conectando ao Supabase Free.
+# Como usar:
+# 1. No Supabase Free, execute deploy/supabase-init-roles.sql no SQL Editor.
+# 2. Rode as migrations e o bootstrap apontando OWNER_DATABASE_URL para o papel app_owner do Supabase.
+# 3. No Render, conecte o repositório e preencha DATABASE_URL (papel app_rw do Supabase) e ALLOWED_ORIGINS.
+
+services:
+  - type: web
+    name: financas-familia
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /readyz
+    envVars:
+      - key: DATABASE_URL
+        sync: false # Preencha no painel do Render com a URI do papel app_rw no Supabase (porta 5432 session mode)
+      - key: ALLOWED_ORIGINS
+        sync: false # Ex.: https://financas-familia.onrender.com
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: SESSION_TTL
+        value: "336h"
+      - key: SESSION_IDLE_TTL
+        value: "72h"
+      - key: LOG_LEVEL
+        value: "info"
+      - key: STATIC_DIR
+        value: "/app/public"
+      - key: TRUSTED_PROXY_CIDRS
+        value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32,::1/128"

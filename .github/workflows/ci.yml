@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: Segurança (Gitleaks & Validação de Scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Varredura de segredos com Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validar sintaxe dos scripts de backup e restauração
+        run: |
+          bash -n scripts/backup-db.sh
+          bash -n scripts/restore-db.sh
+
+  backend:
+    name: Backend Go (vet, testes + Postgres RLS, govulncheck)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci_root_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache-dependency-path: backend/go.sum
+
+      - name: Criar papéis app_owner e app_rw no PostgreSQL
+        env:
+          PGPASSWORD: ci_root_password
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE app_owner LOGIN PASSWORD 'ci_owner_pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          CREATE ROLE app_rw    LOGIN PASSWORD 'ci_rw_pw'    NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          CREATE DATABASE financas OWNER app_owner;
+          REVOKE ALL ON DATABASE financas FROM PUBLIC;
+          GRANT CONNECT ON DATABASE financas TO app_owner, app_rw;
+          SQL
+
+      - name: go vet e build
+        working-directory: backend
+        run: |
+          go vet ./...
+          go build ./...
+
+      - name: Testes unitários e de integração (com RLS)
+        working-directory: backend
+        env:
+          TEST_OWNER_DATABASE_URL: postgres://app_owner:ci_owner_pw@127.0.0.1:5432/financas?sslmode=disable
+          TEST_RW_DATABASE_URL: postgres://app_rw:ci_rw_pw@127.0.0.1:5432/financas?sslmode=disable
+        run: go test -race -v ./...
+
+      - name: govulncheck
+        working-directory: backend
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  frontend:
+    name: Frontend React + TS (typecheck, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar e compilar
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build

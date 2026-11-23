@@ -1,0 +1,40 @@
+# Fly.io configuration (E9-D1b / ADR 0012) - Deploy conectando ao Supabase Free.
+# Como usar:
+# 1. fly launch --no-deploy
+# 2. fly secrets set DATABASE_URL="postgres://app_rw:SENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
+# 3. fly secrets set ALLOWED_ORIGINS="https://financas-familia.fly.dev"
+# 4. fly deploy
+
+app = "financas-familia"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  COOKIE_SECURE = "true"
+  SESSION_TTL = "336h"
+  SESSION_IDLE_TTL = "72h"
+  LOG_LEVEL = "info"
+  STATIC_DIR = "/app/public"
+  TRUSTED_PROXY_CIDRS = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32,::1/128,fdaa::/16"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/readyz"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

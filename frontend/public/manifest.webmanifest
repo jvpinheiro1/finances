@@ -1,0 +1,18 @@
+{
+  "name": "Finanças Família",
+  "short_name": "Finanças",
+  "description": "Sistema privado de gestão financeira familiar",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F172A",
+  "theme_color": "#1E40AF",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

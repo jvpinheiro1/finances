@@ -1,0 +1,34 @@
+# Segredos, ambientes locais e backups de banco
+.env
+.env.*
+!.env.example
+deploy/.env
+backups/
+*.dump
+*.dump.enc
+*.dump.sha256
+*.dump.enc.sha256
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# Go
+backend/bin/
+*.test
+*.out
+coverage.*
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/dev-dist/
+*.tsbuildinfo
+
+# Editores / SO
+.idea/
+.vscode/
+*.swp
+.DS_Store

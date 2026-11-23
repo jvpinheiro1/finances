@@ -1,0 +1,111 @@
+version: "2"
+# Gera um pacote Go por módulo (ADR 0005). Rode a partir de backend/:  sqlc generate
+overrides:
+  go:
+    overrides:
+      - db_type: "uuid"
+        go_type: "github.com/google/uuid.UUID"
+      - db_type: "uuid"
+        nullable: true
+        go_type:
+          import: "github.com/google/uuid"
+          type: "UUID"
+          pointer: true
+      - db_type: "timestamptz"
+        go_type: "time.Time"
+      - db_type: "timestamptz"
+        nullable: true
+        go_type:
+          type: "time.Time"
+          pointer: true
+      - db_type: "pg_catalog.timestamptz"
+        go_type: "time.Time"
+      - db_type: "pg_catalog.timestamptz"
+        nullable: true
+        go_type:
+          type: "time.Time"
+          pointer: true
+      - db_type: "date"
+        go_type: "time.Time"
+      - db_type: "date"
+        nullable: true
+        go_type:
+          type: "time.Time"
+          pointer: true
+      - db_type: "pg_catalog.date"
+        go_type: "time.Time"
+      - db_type: "pg_catalog.date"
+        nullable: true
+        go_type:
+          type: "time.Time"
+          pointer: true
+      - db_type: "citext"
+        go_type: "string"
+sql:
+  - engine: postgresql
+    schema: migrations
+    queries: queries/identity.sql
+    gen:
+      go: &gocfg
+        package: identitydb
+        out: internal/identity/identitydb
+        sql_package: pgx/v5
+        emit_interface: true
+        emit_json_tags: false
+        emit_pointers_for_null_types: true
+  - engine: postgresql
+    schema: migrations
+    queries: queries/household.sql
+    gen:
+      go:
+        <<: *gocfg
+        package: householddb
+        out: internal/household/householddb
+  - engine: postgresql
+    schema: migrations
+    queries: queries/workspace.sql
+    gen:
+      go:
+        <<: *gocfg
+        package: workspacedb
+        out: internal/workspace/workspacedb
+  - engine: postgresql
+    schema: migrations
+    queries: queries/audit.sql
+    gen:
+      go:
+        <<: *gocfg
+        package: auditdb
+        out: internal/audit/auditdb
+  - engine: postgresql
+    schema: migrations
+    queries: queries/expense.sql
+    gen:
+      go:
+        <<: *gocfg
+        package: expensedb
+        out: internal/expense/expensedb
+  - engine: postgresql
+    schema: migrations
+    queries: queries/settlement.sql
+    gen:
+      go:
+        <<: *gocfg
+        package: settlementdb
+        out: internal/settlement/settlementdb
+  - engine: postgresql
+    schema: migrations
+    queries: queries/notification.sql
+    gen:
+      go:
+        <<: *gocfg
+        package: notificationdb
+        out: internal/notification/notificationdb
+  - engine: postgresql
+    schema: migrations
+    queries: queries/bankimport.sql
+    gen:
+      go:
+        <<: *gocfg
+        package: bankimportdb
+        out: internal/bankimport/bankimportdb

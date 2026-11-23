@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Finanças Família">
+  <rect width="128" height="128" rx="28" fill="#1E40AF"/>
+  <path d="M28 56L64 26l36 30v42a6 6 0 0 1-6 6H34a6 6 0 0 1-6-6V56z" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M50 78h28M50 64h20" stroke="#34D399" stroke-width="8" stroke-linecap="round"/>
+</svg>
