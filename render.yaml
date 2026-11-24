@@ -1,7 +1,7 @@
 # Render Blueprint (E9-D1b / ADR 0012) - Deploy gratuito conectando ao Supabase Free.
 # Como usar:
 # 1. No Supabase Free, execute deploy/supabase-init-roles.sql no SQL Editor.
-# 2. Rode as migrations e o bootstrap apontando OWNER_DATABASE_URL para o papel app_owner do Supabase.
+# 2. Rode as migrations e o bootstrap apontando MIGRATE_DATABASE_URL para o papel app_owner do Supabase.
 # 3. No Render, conecte o repositório e preencha DATABASE_URL (papel app_rw do Supabase) e ALLOWED_ORIGINS.
 
 services:

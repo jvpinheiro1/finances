@@ -6,8 +6,8 @@ Sistema privado de gestão financeira familiar para 4 membros, com ambientes ind
 
 - **Backend**: Go 1.27 (`net/http` stdlib, monólito modular REST, `pgx/v5`, `sqlc`, `goose`, `argon2id`)
 - **Banco de Dados**: PostgreSQL 17 (`FORCE ROW LEVEL SECURITY`, separação de papéis `app_owner` e `app_rw`, valores monetários 100% em centavos `BIGINT`/`int64`)
-- **Frontend**: React 19 + TypeScript + Vite (PWA)
-- **Mobile**: Android nativo em Kotlin (`minSdk = 26`, `targetSdk = 35`, `NotificationListenerService` + `EncryptedSharedPreferences`)
+- **Web (PWA)**: React 19 + TypeScript + Vite (`web/`)
+- **Mobile**: Android nativo em Kotlin (`android/`, `minSdk = 26`, `targetSdk = 35`, `NotificationListenerService` + `SharedPreferences` isolado em `MODE_PRIVATE` com `allowBackup="false"`)
 - **Infraestrutura & CI**: Docker Compose, Dockerfile unificado para PaaS (Render / Fly.io) + Supabase Free, scripts de backup criptografado AES-256 e GitHub Actions (`govulncheck`, `gitleaks`, testes de integração com RLS).
 
 ## Documentação (Estrutura Diátaxis)

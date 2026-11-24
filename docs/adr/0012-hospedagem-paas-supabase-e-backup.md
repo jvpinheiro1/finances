@@ -14,13 +14,13 @@ Na Etapa 9 precisamos preparar o sistema **Finanças Família** para execução 
 ## Decisão
 
 1. **Deploy Unificado Single-Origin para PaaS (`E9-D1`, opção b)**:
-   - Criado um `Dockerfile` multi-stage na raiz do projeto que compila a PWA React (`frontend/dist`) e os binários Go (`api` e `admin`) na mesma imagem mínima (`alpine:3.21`), servindo o frontend estático diretamente pelo binário `api` quando `STATIC_DIR=/app/public` estiver definido.
+   - Criado um `Dockerfile` multi-stage na raiz do projeto que compila a PWA React (`web/dist`) e os binários Go (`api` e `admin`) na mesma imagem mínima (`alpine:3.21`), servindo o frontend estático diretamente pelo binário `api` quando `STATIC_DIR=/app/public` estiver definido.
    - Assim, tanto no **Render Free** ([render.yaml](file:///home/gamer/projetos/financas-familia/render.yaml)) quanto no **Fly.io** ([fly.toml](file:///home/gamer/projetos/financas-familia/fly.toml)), a PWA e `/api/v1/*` compartilham a **mesma origem HTTPS**, garantindo funcionamento nativo do cookie `ff_session` (`HttpOnly; Secure; SameSite=Lax`) sem CORS e consumindo apenas 1 serviço gratuito.
    - O suporte a `PORT` (injetado por Render/Fly.io) foi adicionado a `internal/platform/config`.
 
 2. **Script de Papéis para Supabase Free ([deploy/supabase-init-roles.sql](file:///home/gamer/projetos/financas-familia/deploy/supabase-init-roles.sql))**:
-   - No Supabase Free, o administrador executa uma única vez o script `deploy/supabase-init-roles.sql` no SQL Editor para criar o papel `app_rw` com `NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`.
-   - As migrations (`admin migrate up`) e o bootstrap (`admin bootstrap`) usam a string de conexão do usuário `postgres` (`OWNER_DATABASE_URL`), enquanto a API em execução no PaaS usa exclusivamente a string de conexão do usuário `app_rw` (`DATABASE_URL`), preservando 100% do `FORCE ROW LEVEL SECURITY` e sem acoplar nenhuma regra de negócio a recursos proprietários do Supabase.
+   - No Supabase Free, o administrador executa uma única vez o script `deploy/supabase-init-roles.sql` no SQL Editor para criar os papéis `app_owner` e `app_rw` com `NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`.
+   - As migrations (`admin migrate up`) e o bootstrap (`admin bootstrap`) usam a string de conexão do papel `app_owner` (`MIGRATE_DATABASE_URL`), enquanto a API em execução no PaaS usa exclusivamente a string de conexão do usuário `app_rw` (`DATABASE_URL`), preservando 100% do `FORCE ROW LEVEL SECURITY` e sem acoplar nenhuma regra de negócio a recursos proprietários do Supabase.
 
 3. **Validação de Proxy Confiável (`TRUSTED_PROXY_CIDRS`)**:
    - `httpx.ClientIP(r)` passa a verificar se `r.RemoteAddr` pertence às faixas CIDR configuradas em `TRUSTED_PROXY_CIDRS` (ex.: redes privadas `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32,::1/128` usadas pelos load balancers internos de PaaS/Docker).

@@ -5,8 +5,8 @@
 
 ## Decisão
 - Driver `github.com/jackc/pgx/v5` com pool (`pgxpool`).
-- SQL escrito à mão em `backend/queries/<modulo>.sql` e código Go gerado pelo **sqlc** (um pacote por módulo). O código gerado é versionado.
-- Migrations SQL em `backend/migrations/` com **goose**, embutidas no binário e executadas pelo comando `admin migrate up|down|status` usando o papel `app_owner`.
+- SQL escrito à mão em `queries/<modulo>.sql` e código Go gerado pelo **sqlc** (um pacote por módulo). O código gerado é versionado.
+- Migrations SQL em `migrations/` com **goose**, embutidas no binário e executadas pelo comando `admin migrate up|down|status` usando o papel `app_owner`.
 - Nenhum SQL concatenado com entrada do usuário; sempre parâmetros.
 
 ## Consequências

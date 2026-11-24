@@ -3,7 +3,7 @@
 ## 1. Pré-requisitos
 
 - Docker Engine + plugin `docker compose`
-- (Opcional para desenvolvimento fora de containers) Go 1.24+ e Node.js 24+
+- (Opcional para desenvolvimento fora de containers) Go 1.27+ e Node.js 24+
 
 ## 2. Configurar variáveis de ambiente
 
@@ -60,11 +60,10 @@ No primeiro acesso em `http://localhost:5173`, o familiar entra com a senha temp
 
 ## 5. Rodar os testes automatizados
 
-Com o container `db` ativo:
+A partir da raiz do repositório, com o container `db` ativo:
 
 ```bash
-cd backend
-set -a && . ../deploy/.env && set +a
+set -a && . deploy/.env && set +a
 TEST_OWNER_DATABASE_URL="postgres://app_owner:${APP_OWNER_PASSWORD}@127.0.0.1:5433/${APP_DB_NAME}?sslmode=disable" \
 TEST_RW_DATABASE_URL="postgres://app_rw:${APP_RW_PASSWORD}@127.0.0.1:5433/${APP_DB_NAME}?sslmode=disable" \
 go test -v ./...

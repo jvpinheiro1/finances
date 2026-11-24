@@ -7,7 +7,7 @@
 O sistema atende 4 usuários de uma família. Precisa ser simples de operar, barato de hospedar e fácil de manter, com regras de negócio fortes (privacidade, divisões, parcelamentos).
 
 ## Decisão
-- Um único binário Go (`backend/cmd/api`) com módulos internos (`internal/<modulo>`), API REST JSON em `/api/v1`.
+- Um único binário Go (`cmd/api`) com módulos internos (`internal/<modulo>`), API REST JSON em `/api/v1`.
 - Roteamento com `net/http` (ServeMux do Go ≥ 1.22, com método e curingas), sem framework.
 - Cada módulo segue `domain → service → (repository | http)`. Um módulo só usa outro pelo service público dele; nunca acessa as tabelas do outro diretamente.
 - Sem microsserviços e sem Kubernetes na primeira versão.

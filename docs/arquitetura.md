@@ -2,7 +2,7 @@
 
 ## Visão geral
 
-O sistema é um **monólito modular em Go** (`backend/cmd/api` + `backend/cmd/admin`) com banco **PostgreSQL 17** e frontend **React + TypeScript (PWA)** (`frontend/`).
+O sistema é um **monólito modular em Go** (`cmd/api` + `cmd/admin`) com banco **PostgreSQL 17** e interface web **React + TypeScript (PWA)** (`web/`).
 
 - As decisões arquiteturais estão documentadas em `docs/adr/`:
   - [ADR 0001](adr/0001-monolito-modular-go.md) — Monólito modular em Go com REST (`net/http` stdlib)

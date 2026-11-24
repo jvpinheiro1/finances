@@ -17,7 +17,7 @@ O usuário padrão `postgres` do Supabase possui o privilégio `BYPASSRLS`, que 
 ### Passo 1.2 — Montar as duas strings de conexão (Session Mode — porta `5432`)
 No painel do Supabase, clique em **Connect** → **Session pooler (port 5432)** para obter o host do pooler IPv4/IPv6 (ex.: `aws-0-sa-east-1.pooler.supabase.com`) e o sufixo do seu projeto (`<project-ref>`):
 
-- **String do dono (`OWNER_DATABASE_URL`, usada apenas para migrations e bootstrap CLI)**:
+- **String do dono (`MIGRATE_DATABASE_URL`, usada apenas para migrations e bootstrap CLI)**:
   ```text
   postgres://app_owner.<project-ref>:<SENHA_OWNER>@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require
   ```
@@ -30,19 +30,18 @@ No painel do Supabase, clique em **Connect** → **Session pooler (port 5432)** 
 > Use sempre a porta **`5432` (Session Mode)** do Supavisor (ou a conexão direta `db.<project-ref>.supabase.co:5432`). Isso garante total compatibilidade com prepared statements do `pgx/v5` e com o `SELECT set_config('app.user_id', $1, true)` por transação.
 
 ### Passo 1.3 — Aplicar as migrations e criar a residência + 4 familiares
-A partir da sua máquina local (com `OWNER_DATABASE_URL` exportada):
+A partir da raiz do repositório na sua máquina local (com `MIGRATE_DATABASE_URL` exportada):
 
 ```bash
-export DATABASE_URL="postgres://app_owner.<project-ref>:<SENHA_OWNER>@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
+export MIGRATE_DATABASE_URL="postgres://app_owner.<project-ref>:<SENHA_OWNER>@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
 
 # 1. Aplicar todas as migrations (00001 a 00007)
-go -C backend run ./cmd/admin migrate up
+go run ./cmd/admin migrate up
 
 # 2. Criar a residência e os membros (gera senhas temporárias com troca obrigatória no 1º login)
-go -C backend run ./cmd/admin bootstrap \
-  --household "Família" \
-  --member "Maria:maria@familia.local" \
-  --member "João:joao@familia.local"
+go run ./cmd/admin bootstrap --name "Família" --max-members 4
+go run ./cmd/admin user add --name "Maria" --email "maria@familia.local"
+go run ./cmd/admin user add --name "João" --email "joao@familia.local"
 ```
 
 ---
