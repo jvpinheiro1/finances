@@ -91,6 +91,7 @@ SELECT id, household_id, owner_user_id, device_token_id, bank_code, parse_status
  WHERE id = $1
    AND household_id = $2
    AND owner_user_id = $3
+   FOR UPDATE
 `
 
 type GetMyBankImportParams struct {

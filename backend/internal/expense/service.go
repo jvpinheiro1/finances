@@ -233,6 +233,7 @@ type ExpenseFilter struct {
 	FromDate   *string // AAAA-MM-DD
 	ToDate     *string // AAAA-MM-DD
 	CategoryID *uuid.UUID
+	MaxRows    int32 // opcional; padrão 500
 }
 
 type ExpenseListResult struct {
@@ -249,7 +250,11 @@ func (s *Service) ListByWorkspace(ctx context.Context, v workspace.Viewer, wsID 
 		toDate     time.Time
 		filterCat  bool
 		catID      uuid.UUID
+		maxRows    int32 = 500
 	)
+	if f.MaxRows > 0 {
+		maxRows = f.MaxRows
+	}
 	if f.FromDate != nil && *f.FromDate != "" {
 		t, err := ParseDate(*f.FromDate)
 		if err != nil {
@@ -283,13 +288,21 @@ func (s *Service) ListByWorkspace(ctx context.Context, v workspace.Viewer, wsID 
 			ToDate:         toDate,
 			FilterCategory: filterCat,
 			CategoryID:     catID,
+			MaxRows:        maxRows,
 		})
 		if err != nil {
 			return err
 		}
 
 		splitRows, err := q.ListWorkspaceExpenseSplits(ctx, expensedb.ListWorkspaceExpenseSplitsParams{
-			HouseholdID: v.HouseholdID, WorkspaceID: wsID,
+			HouseholdID:    v.HouseholdID,
+			WorkspaceID:    wsID,
+			FilterFrom:     filterFrom,
+			FromDate:       fromDate,
+			FilterTo:       filterTo,
+			ToDate:         toDate,
+			FilterCategory: filterCat,
+			CategoryID:     catID,
 		})
 		if err != nil {
 			return err
@@ -324,137 +337,155 @@ func (s *Service) ListByWorkspace(ctx context.Context, v workspace.Viewer, wsID 
 // Create cria uma despesa à vista (TotalInstallments == 1) ou materializa um
 // parcelamento de 2..48 parcelas na mesma transação (ADR 0007).
 func (s *Service) Create(ctx context.Context, v workspace.Viewer, wsID uuid.UUID, in ExpenseInput) (Expense, error) {
+	var out Expense
+	err := db.WithUserTx(ctx, s.db, v.UserID, func(tx pgx.Tx) error {
+		created, err := s.CreateTx(ctx, tx, v, wsID, in)
+		if err != nil {
+			return err
+		}
+		out = created
+		return nil
+	})
+	return out, err
+}
+
+// CreateTx executa a criação de despesa (ou plano de parcelamento 2..48x) dentro
+// de uma transação já aberta com RLS ativo, permitindo composição atômica com
+// outros módulos (como a aprovação de item da fila bancária Android).
+func (s *Service) CreateTx(ctx context.Context, tx pgx.Tx, v workspace.Viewer, wsID uuid.UUID, in ExpenseInput) (Expense, error) {
 	incurredOn, err := in.Validate()
 	if err != nil {
 		return Expense{}, err
 	}
-	var out Expense
-	err = db.WithUserTx(ctx, s.db, v.UserID, func(tx pgx.Tx) error {
-		ws, err := workspace.GetTx(ctx, tx, v, wsID)
-		if err != nil {
-			return ErrNotFound
-		}
-		paidBy, totalSplits, pm, err := s.validateRefsAndSplits(ctx, tx, v, ws, in)
-		if err != nil {
-			return err
-		}
-		q := expensedb.New(tx)
+	ws, err := workspace.GetTx(ctx, tx, v, wsID)
+	if err != nil {
+		return Expense{}, ErrNotFound
+	}
+	paidBy, totalSplits, pm, err := s.validateRefsAndSplits(ctx, tx, v, ws, in)
+	if err != nil {
+		return Expense{}, err
+	}
+	q := expensedb.New(tx)
 
-		if in.TotalInstallments == 1 {
-			created, err := q.CreateExpense(ctx, expensedb.CreateExpenseParams{
-				HouseholdID:     v.HouseholdID,
-				WorkspaceID:     ws.ID,
-				CategoryID:      in.CategoryID,
-				PaymentMethodID: in.PaymentMethodID,
-				PaidByUserID:    paidBy,
-				CreatedByUserID: v.UserID,
-				AmountCents:     in.AmountCents,
-				Description:     in.Description,
-				IncurredOn:      incurredOn,
-				Notes:           in.Notes,
-				SplitStrategy:   string(in.SplitStrategy),
-			})
-			if err != nil {
-				return err
-			}
-			if err := saveSplitsTx(ctx, q, created.ID, totalSplits); err != nil {
-				return err
-			}
-			out, err = loadExpenseTx(ctx, q, v.HouseholdID, created.ID)
-			if err != nil {
-				return err
-			}
-			if ws.Kind == workspace.KindHousehold {
-				if err := notifyCollectiveExpenseTx(ctx, tx, v.HouseholdID, v.UserID, out); err != nil {
-					return err
-				}
-			}
-			return audit.Record(ctx, tx, audit.Entry{
-				HouseholdID: audit.Ptr(v.HouseholdID), ActorID: audit.Ptr(v.UserID),
-				Action: audit.ActionExpenseCreated, EntityType: "expense", EntityID: audit.Ptr(created.ID),
-				Meta: map[string]any{"workspace_kind": string(ws.Kind), "split_strategy": string(in.SplitStrategy)},
-			})
-		}
-
-		// Compra parcelada (2..48x): materializa installment_plan + N parcelas.
-		var closingDay *int32
-		if pm != nil {
-			closingDay = pm.ClosingDay
-		}
-		schedule, err := ComputeInstallmentSchedule(in.AmountCents, in.TotalInstallments, incurredOn, closingDay)
+	if in.TotalInstallments == 1 {
+		created, err := q.CreateExpense(ctx, expensedb.CreateExpenseParams{
+			HouseholdID:     v.HouseholdID,
+			WorkspaceID:     ws.ID,
+			CategoryID:      in.CategoryID,
+			PaymentMethodID: in.PaymentMethodID,
+			PaidByUserID:    paidBy,
+			CreatedByUserID: v.UserID,
+			AmountCents:     in.AmountCents,
+			Description:     in.Description,
+			IncurredOn:      incurredOn,
+			Notes:           in.Notes,
+			SplitStrategy:   string(in.SplitStrategy),
+		})
 		if err != nil {
-			return err
+			return Expense{}, err
 		}
-		plan, err := q.CreateInstallmentPlan(ctx, expensedb.CreateInstallmentPlanParams{
+		if err := saveSplitsTx(ctx, q, created.ID, totalSplits); err != nil {
+			return Expense{}, err
+		}
+		out, err := loadExpenseTx(ctx, q, v.HouseholdID, created.ID)
+		if err != nil {
+			return Expense{}, err
+		}
+		if ws.Kind == workspace.KindHousehold {
+			if err := notifyCollectiveExpenseTx(ctx, tx, v.HouseholdID, v.UserID, out); err != nil {
+				return Expense{}, err
+			}
+		}
+		if err := audit.Record(ctx, tx, audit.Entry{
+			HouseholdID: audit.Ptr(v.HouseholdID), ActorID: audit.Ptr(v.UserID),
+			Action: audit.ActionExpenseCreated, EntityType: "expense", EntityID: audit.Ptr(created.ID),
+			Meta: map[string]any{"workspace_kind": string(ws.Kind), "split_strategy": string(in.SplitStrategy)},
+		}); err != nil {
+			return Expense{}, err
+		}
+		return out, nil
+	}
+
+	// Compra parcelada (2..48x): materializa installment_plan + N parcelas.
+	var closingDay *int32
+	if pm != nil {
+		closingDay = pm.ClosingDay
+	}
+	schedule, err := ComputeInstallmentSchedule(in.AmountCents, in.TotalInstallments, incurredOn, closingDay)
+	if err != nil {
+		return Expense{}, err
+	}
+	plan, err := q.CreateInstallmentPlan(ctx, expensedb.CreateInstallmentPlanParams{
+		HouseholdID:       v.HouseholdID,
+		WorkspaceID:       ws.ID,
+		CategoryID:        in.CategoryID,
+		PaymentMethodID:   in.PaymentMethodID,
+		PaidByUserID:      paidBy,
+		CreatedByUserID:   v.UserID,
+		TotalAmountCents:  in.AmountCents,
+		TotalInstallments: int32(in.TotalInstallments),
+		Description:       in.Description,
+		FirstIncurredOn:   schedule[0].IncurredOn,
+	})
+	if err != nil {
+		return Expense{}, err
+	}
+
+	var firstExpenseID uuid.UUID
+	for _, sl := range schedule {
+		var sliceSplits []SplitShare
+		if ws.Kind == workspace.KindHousehold {
+			sliceSplits, err = ComputeRefundSplits(sl.AmountCents, paidBy, totalSplits)
+			if err != nil {
+				return Expense{}, err
+			}
+		}
+		num := sl.Number
+		tot := sl.Total
+		created, err := q.CreateExpense(ctx, expensedb.CreateExpenseParams{
 			HouseholdID:       v.HouseholdID,
 			WorkspaceID:       ws.ID,
 			CategoryID:        in.CategoryID,
 			PaymentMethodID:   in.PaymentMethodID,
 			PaidByUserID:      paidBy,
 			CreatedByUserID:   v.UserID,
-			TotalAmountCents:  in.AmountCents,
-			TotalInstallments: int32(in.TotalInstallments),
+			AmountCents:       sl.AmountCents,
 			Description:       in.Description,
-			FirstIncurredOn:   schedule[0].IncurredOn,
+			IncurredOn:        sl.IncurredOn,
+			Notes:             in.Notes,
+			SplitStrategy:     string(in.SplitStrategy),
+			InstallmentPlanID: &plan.ID,
+			InstallmentNumber: &num,
+			TotalInstallments: &tot,
 		})
 		if err != nil {
-			return err
+			return Expense{}, err
 		}
+		if err := saveSplitsTx(ctx, q, created.ID, sliceSplits); err != nil {
+			return Expense{}, err
+		}
+		if sl.Number == 1 {
+			firstExpenseID = created.ID
+		}
+	}
 
-		var firstExpenseID uuid.UUID
-		for _, sl := range schedule {
-			var sliceSplits []SplitShare
-			if ws.Kind == workspace.KindHousehold {
-				sliceSplits, err = ComputeRefundSplits(sl.AmountCents, paidBy, totalSplits)
-				if err != nil {
-					return err
-				}
-			}
-			num := sl.Number
-			tot := sl.Total
-			created, err := q.CreateExpense(ctx, expensedb.CreateExpenseParams{
-				HouseholdID:       v.HouseholdID,
-				WorkspaceID:       ws.ID,
-				CategoryID:        in.CategoryID,
-				PaymentMethodID:   in.PaymentMethodID,
-				PaidByUserID:      paidBy,
-				CreatedByUserID:   v.UserID,
-				AmountCents:       sl.AmountCents,
-				Description:       in.Description,
-				IncurredOn:        sl.IncurredOn,
-				Notes:             in.Notes,
-				SplitStrategy:     string(in.SplitStrategy),
-				InstallmentPlanID: &plan.ID,
-				InstallmentNumber: &num,
-				TotalInstallments: &tot,
-			})
-			if err != nil {
-				return err
-			}
-			if err := saveSplitsTx(ctx, q, created.ID, sliceSplits); err != nil {
-				return err
-			}
-			if sl.Number == 1 {
-				firstExpenseID = created.ID
-			}
+	out, err := loadExpenseTx(ctx, q, v.HouseholdID, firstExpenseID)
+	if err != nil {
+		return Expense{}, err
+	}
+	if ws.Kind == workspace.KindHousehold {
+		if err := notifyCollectiveExpenseTx(ctx, tx, v.HouseholdID, v.UserID, out); err != nil {
+			return Expense{}, err
 		}
-
-		out, err = loadExpenseTx(ctx, q, v.HouseholdID, firstExpenseID)
-		if err != nil {
-			return err
-		}
-		if ws.Kind == workspace.KindHousehold {
-			if err := notifyCollectiveExpenseTx(ctx, tx, v.HouseholdID, v.UserID, out); err != nil {
-				return err
-			}
-		}
-		return audit.Record(ctx, tx, audit.Entry{
-			HouseholdID: audit.Ptr(v.HouseholdID), ActorID: audit.Ptr(v.UserID),
-			Action: audit.ActionInstallmentCreated, EntityType: "installment_plan", EntityID: audit.Ptr(plan.ID),
-			Meta: map[string]any{"workspace_kind": string(ws.Kind), "total_installments": in.TotalInstallments},
-		})
-	})
-	return out, err
+	}
+	if err := audit.Record(ctx, tx, audit.Entry{
+		HouseholdID: audit.Ptr(v.HouseholdID), ActorID: audit.Ptr(v.UserID),
+		Action: audit.ActionInstallmentCreated, EntityType: "installment_plan", EntityID: audit.Ptr(plan.ID),
+		Meta: map[string]any{"workspace_kind": string(ws.Kind), "total_installments": in.TotalInstallments},
+	}); err != nil {
+		return Expense{}, err
+	}
+	return out, nil
 }
 
 func (s *Service) Get(ctx context.Context, v workspace.Viewer, id uuid.UUID) (Expense, error) {

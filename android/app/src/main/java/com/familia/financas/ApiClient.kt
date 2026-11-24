@@ -69,34 +69,42 @@ object ApiClient {
         if (baseUrl.isEmpty() || token.isEmpty()) return false
 
         val endpoint = URL("$baseUrl/api/v1/ingest/bank-notification")
-        val conn = (endpoint.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 10_000
-            readTimeout = 10_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("Authorization", "Bearer $token")
-            setRequestProperty("X-Requested-With", "AndroidApp")
-        }
+        val payload = JSONObject().apply {
+            put("package_name", packageName)
+            put("title", title)
+            put("text", text)
+            put("occurred_on", LocalDate.now(ZoneOffset.UTC).toString())
+            put("external_id", externalId)
+        }.toString()
 
-        return try {
-            val payload = JSONObject().apply {
-                put("package_name", packageName)
-                put("title", title)
-                put("text", text)
-                put("occurred_on", LocalDate.now(ZoneOffset.UTC).toString())
-                put("external_id", externalId)
+        // Até 2 tentativas com timeout de 35s para suportar cold start (~30s) em PaaS gratuito (ADR 0012).
+        for (attempt in 1..2) {
+            val conn = (endpoint.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 35_000
+                readTimeout = 35_000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("X-Requested-With", "AndroidApp")
             }
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
-                writer.write(payload.toString())
+            try {
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                    writer.write(payload)
+                }
+                val code = conn.responseCode
+                if (code in 200..299) {
+                    return true
+                }
+                if (code in 400..499) {
+                    return false
+                }
+            } catch (_: Exception) {
+                // Silencioso: nunca grava payload financeiro no Logcat.
+            } finally {
+                conn.disconnect()
             }
-            val code = conn.responseCode
-            code in 200..299
-        } catch (_: Exception) {
-            // Silencioso: nunca grava payload financeiro no Logcat.
-            false
-        } finally {
-            conn.disconnect()
         }
+        return false
     }
 }

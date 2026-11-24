@@ -1062,12 +1062,21 @@ SELECT s.expense_id, s.user_id, u.name AS user_name, s.weight_bps, s.share_cents
   JOIN app_user u ON u.id = s.user_id
  WHERE e.household_id = $1
    AND e.workspace_id = $2
+   AND ($3::bool = false OR e.incurred_on >= $4::date)
+   AND ($5::bool = false OR e.incurred_on <= $6::date)
+   AND ($7::bool = false OR e.category_id = $8::uuid)
  ORDER BY u.name, s.user_id
 `
 
 type ListWorkspaceExpenseSplitsParams struct {
-	HouseholdID uuid.UUID
-	WorkspaceID uuid.UUID
+	HouseholdID    uuid.UUID
+	WorkspaceID    uuid.UUID
+	FilterFrom     bool
+	FromDate       time.Time
+	FilterTo       bool
+	ToDate         time.Time
+	FilterCategory bool
+	CategoryID     uuid.UUID
 }
 
 type ListWorkspaceExpenseSplitsRow struct {
@@ -1079,7 +1088,16 @@ type ListWorkspaceExpenseSplitsRow struct {
 }
 
 func (q *Queries) ListWorkspaceExpenseSplits(ctx context.Context, arg ListWorkspaceExpenseSplitsParams) ([]ListWorkspaceExpenseSplitsRow, error) {
-	rows, err := q.db.Query(ctx, listWorkspaceExpenseSplits, arg.HouseholdID, arg.WorkspaceID)
+	rows, err := q.db.Query(ctx, listWorkspaceExpenseSplits,
+		arg.HouseholdID,
+		arg.WorkspaceID,
+		arg.FilterFrom,
+		arg.FromDate,
+		arg.FilterTo,
+		arg.ToDate,
+		arg.FilterCategory,
+		arg.CategoryID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1121,7 +1139,7 @@ SELECT e.id, e.household_id, e.workspace_id, e.category_id, e.payment_method_id,
    AND ($5::bool = false OR e.incurred_on <= $6::date)
    AND ($7::bool = false OR e.category_id = $8::uuid)
  ORDER BY e.incurred_on DESC, e.created_at DESC
- LIMIT 500
+ LIMIT $9
 `
 
 type ListWorkspaceExpensesParams struct {
@@ -1133,6 +1151,7 @@ type ListWorkspaceExpensesParams struct {
 	ToDate         time.Time
 	FilterCategory bool
 	CategoryID     uuid.UUID
+	MaxRows        int32
 }
 
 type ListWorkspaceExpensesRow struct {
@@ -1174,6 +1193,7 @@ func (q *Queries) ListWorkspaceExpenses(ctx context.Context, arg ListWorkspaceEx
 		arg.ToDate,
 		arg.FilterCategory,
 		arg.CategoryID,
+		arg.MaxRows,
 	)
 	if err != nil {
 		return nil, err

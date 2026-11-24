@@ -146,7 +146,7 @@ SELECT e.*,
    AND (@filter_to::bool = false OR e.incurred_on <= @to_date::date)
    AND (@filter_category::bool = false OR e.category_id = @category_id::uuid)
  ORDER BY e.incurred_on DESC, e.created_at DESC
- LIMIT 500;
+ LIMIT @max_rows;
 
 -- name: UpdateExpense :one
 UPDATE expense
@@ -204,6 +204,9 @@ SELECT s.expense_id, s.user_id, u.name AS user_name, s.weight_bps, s.share_cents
   JOIN app_user u ON u.id = s.user_id
  WHERE e.household_id = @household_id
    AND e.workspace_id = @workspace_id
+   AND (@filter_from::bool = false OR e.incurred_on >= @from_date::date)
+   AND (@filter_to::bool = false OR e.incurred_on <= @to_date::date)
+   AND (@filter_category::bool = false OR e.category_id = @category_id::uuid)
  ORDER BY u.name, s.user_id;
 
 -- === Estornos (expense_refund) ===

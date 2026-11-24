@@ -268,11 +268,13 @@ type ApproveInput struct {
 	Notes             string
 }
 
-// Approve transforma um item pendente da fila em uma despesa (no ambiente individual ou coletivo escolhido).
+// Approve transforma um item pendente da fila em uma despesa (no ambiente individual ou coletivo escolhido)
+// de forma atômica em uma única transação com lock pessimista (FOR UPDATE).
 func (s *Service) Approve(ctx context.Context, v workspace.Viewer, id uuid.UUID, in ApproveInput) (expense.Expense, error) {
-	var cur ImportItem
+	var createdExp expense.Expense
 	err := db.WithUserTx(ctx, s.txb, v.UserID, func(tx pgx.Tx) error {
-		r, err := bankimportdb.New(tx).GetMyBankImport(ctx, bankimportdb.GetMyBankImportParams{
+		q := bankimportdb.New(tx)
+		r, err := q.GetMyBankImport(ctx, bankimportdb.GetMyBankImportParams{
 			ID: id, HouseholdID: v.HouseholdID, OwnerUserID: v.UserID,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -281,56 +283,50 @@ func (s *Service) Approve(ctx context.Context, v workspace.Viewer, id uuid.UUID,
 		if err != nil {
 			return err
 		}
-		cur = toImportItem(r)
-		return nil
-	})
-	if err != nil {
-		return expense.Expense{}, err
-	}
-	if cur.Status != "pending" {
-		return expense.Expense{}, ErrNotPending
-	}
+		cur := toImportItem(r)
+		if cur.Status != "pending" {
+			return ErrNotPending
+		}
 
-	var amount int64
-	if in.AmountCents != nil && *in.AmountCents > 0 {
-		amount = *in.AmountCents
-	} else if cur.ParsedAmountCents != nil && *cur.ParsedAmountCents > 0 {
-		amount = *cur.ParsedAmountCents
-	} else {
-		return expense.Expense{}, ErrAmountRequired
-	}
+		var amount int64
+		if in.AmountCents != nil && *in.AmountCents > 0 {
+			amount = *in.AmountCents
+		} else if cur.ParsedAmountCents != nil && *cur.ParsedAmountCents > 0 {
+			amount = *cur.ParsedAmountCents
+		} else {
+			return ErrAmountRequired
+		}
 
-	desc := strings.TrimSpace(in.Description)
-	if desc == "" {
-		desc = cur.MerchantOrTitle
-	}
-	incOn := strings.TrimSpace(in.IncurredOn)
-	if incOn == "" {
-		incOn = cur.OccurredOn
-	}
-	inst := in.TotalInstallments
-	if inst <= 0 {
-		inst = int(cur.ParsedInstallments)
-	}
+		desc := strings.TrimSpace(in.Description)
+		if desc == "" {
+			desc = cur.MerchantOrTitle
+		}
+		incOn := strings.TrimSpace(in.IncurredOn)
+		if incOn == "" {
+			incOn = cur.OccurredOn
+		}
+		inst := in.TotalInstallments
+		if inst <= 0 {
+			inst = int(cur.ParsedInstallments)
+		}
 
-	createdExp, err := s.expSvc.Create(ctx, v, in.WorkspaceID, expense.ExpenseInput{
-		CategoryID:        in.CategoryID,
-		PaymentMethodID:   in.PaymentMethodID,
-		PaidByUserID:      v.UserID,
-		AmountCents:       amount,
-		Description:       desc,
-		IncurredOn:        incOn,
-		Notes:             in.Notes,
-		SplitStrategy:     expense.SplitEqual,
-		TotalInstallments: inst,
-	})
-	if err != nil {
-		return expense.Expense{}, err
-	}
+		createdExp, err = s.expSvc.CreateTx(ctx, tx, v, in.WorkspaceID, expense.ExpenseInput{
+			CategoryID:        in.CategoryID,
+			PaymentMethodID:   in.PaymentMethodID,
+			PaidByUserID:      v.UserID,
+			AmountCents:       amount,
+			Description:       desc,
+			IncurredOn:        incOn,
+			Notes:             in.Notes,
+			SplitStrategy:     expense.SplitEqual,
+			TotalInstallments: inst,
+		})
+		if err != nil {
+			return err
+		}
 
-	err = db.WithUserTx(ctx, s.txb, v.UserID, func(tx pgx.Tx) error {
 		expID := createdExp.ID
-		if _, err := bankimportdb.New(tx).MarkBankImportApproved(ctx, bankimportdb.MarkBankImportApprovedParams{
+		if _, err := q.MarkBankImportApproved(ctx, bankimportdb.MarkBankImportApprovedParams{
 			ID: id, HouseholdID: v.HouseholdID, OwnerUserID: v.UserID, ApprovedExpenseID: &expID,
 		}); err != nil {
 			return err

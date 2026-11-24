@@ -1,5 +1,5 @@
 CONTEXTO DO PROJETO - FINANÇAS FAMÍLIA
-Atualizado em: 2026-11-23
+Atualizado em: 2026-11-24
 
 OBJETIVO
 - Sistema privado de gestão financeira para 4 familiares: despesas individuais
@@ -97,13 +97,15 @@ PRÓXIMOS PASSOS
 ROTEIRO DE TESTES PRÁTICOS (PARA AMANHÃ)
 - Passo 1 (Bootstrap da família e senhas temporárias):
   cd /home/gamer/projetos/financas-familia
-  docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm --entrypoint /app/admin migrate bootstrap --household "Família Silva" --member "Maria:maria@familia.local" --member "João:joao@familia.local"
+  docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm --entrypoint /app/admin migrate bootstrap --name "Família Silva"
+  docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm --entrypoint /app/admin migrate user add --name "Maria" --email "maria@familia.local"
+  docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm --entrypoint /app/admin migrate user add --name "João" --email "joao@familia.local"
 - Passo 2 (Acesso à PWA no navegador):
   Abrir http://localhost:5173 -> logar com maria@familia.local e a senha temporária impressa -> definir nova senha (>= 10 caracteres) -> testar alternância de Ambiente Coletivo/Individual, Nova Despesa, Parcelamentos (2x..48x), Divisões (Igual/Exato/%/Cotas), Saldos/Reembolsos, Estornos, Recorrentes/Assinaturas, Notificações e Relatórios CSV/PDF.
 - Passo 3 (Simular captura do App Android via curl):
-  Na PWA, gerar um token na seção "App Android (Captura Bancária) e Fila de Revisão" (ffdev_...) e rodar:
-  curl -i -X POST http://localhost:8080/api/v1/ingest/bank-notification -H "Authorization: Bearer SEU_TOKEN_ffdev" -H "Content-Type: application/json" -d '{"package_name":"com.nu.production","title":"Compra aprovada no seu cartão","body":"Compra de R$ 89,90 aprovada em Supermercado Dia para o cartão final 4321 em 2x","dedup_hash":"teste-nubank-001"}'
-  curl -i -X POST http://localhost:8080/api/v1/ingest/bank-notification -H "Authorization: Bearer SEU_TOKEN_ffdev" -H "Content-Type: application/json" -d '{"package_name":"com.itau","title":"Aviso Itau","body":"Movimentacao realizada na sua conta hoje","dedup_hash":"teste-itau-002"}'
+  Na PWA, gerar um token na seção "App Android (Captura Bancária) e Fila de Revisão" (ff_dev_...) e rodar:
+  curl -i -X POST http://localhost:8080/api/v1/ingest/bank-notification -H "Authorization: Bearer SEU_TOKEN_ff_dev" -H "X-Requested-With: AndroidApp" -H "Content-Type: application/json" -d '{"package_name":"com.nu.production","title":"Compra aprovada no seu cartão","text":"Compra de R$ 89,90 aprovada em Supermercado Dia para o cartão final 4321 em 2x","external_id":"teste-nubank-001"}'
+  curl -i -X POST http://localhost:8080/api/v1/ingest/bank-notification -H "Authorization: Bearer SEU_TOKEN_ff_dev" -H "X-Requested-With: AndroidApp" -H "Content-Type: application/json" -d '{"package_name":"com.itau","title":"Aviso Itau","text":"Movimentacao realizada na sua conta hoje","external_id":"teste-itau-002"}'
   Clicar em "Atualizar fila" na PWA para revisar/aprovar ou descartar.
 - Passo 4 (Testar Backup Criptografado AES-256 e verificação):
   BACKUP_PASSPHRASE="minha-chave-secreta-teste" ./scripts/backup-db.sh
@@ -142,3 +144,9 @@ HISTÓRICO DE ATIVIDADES
 - 2026-11-23 16:39 | Implementados ADR 0012, TRUSTED_PROXY_CIDRS/STATIC_DIR/PORT na API Go, deploy/supabase-init-roles.sql, Dockerfile multi-stage unificado, render.yaml, fly.toml, scripts/backup-db.sh e scripts/restore-db.sh, e CI com gitleaks; iniciando teste de integração completo e teste real de backup criptografado + restore --verify-only | em andamento | rodar testes e escrever docs/producao-e-backup.md |
 - 2026-11-23 16:45 | Etapa 9 CONCLUÍDA (Roadmap 1..9 100% finalizado): backup criptografado AES-256 testado (financas_20261123T194154Z.dump.enc + restore-db.sh --verify-only OK com 187 objetos), todos os testes unitários e de integração com RLS passando (PASS 2.6s), docs/producao-e-backup.md escrito e containers Docker Compose atualizados | OK | projeto pronto para uso local e deploy em PaaS + Supabase Free |
 - 2026-11-23 16:55 | Salvo roteiro prático de testes para amanhã no CONTEXTO.md; criado README.md na raiz; auditados arquivos contra vazamento de segredos (.env, backups/*.dump.enc, node_modules, dist e *.tsbuildinfo ignorados no .gitignore) e criado commit inicial no Git local (branch main) | OK | conectar repositório remoto privado no GitHub e fazer git push |
+- 2026-11-24 13:35 | Criadas as pastas `agents/` e `.agents/` (com `skills/` e `rules/`) na raiz do projeto `/home/gamer/projetos/financas-familia` para início do trabalho com multi-agents | OK | definir os papéis/arquivos dos agentes a pedido do usuário |
+- 2026-11-24 13:43 | Configurado o subagent `software-architect` em `agents/software-architect.md` e `.agents/agents/software-architect.md` com frontmatter compatível com o Antigravity (`name`, `description`, `subagent: true`, `mainAgent: false`, `tools`) | OK | aguardar o próximo agente a ser configurado pelo usuário |
+- 2026-11-24 13:50 | Configurado o subagent `reality-checker` em `agents/reality-checker.md` e `.agents/agents/reality-checker.md` com frontmatter compatível com o Antigravity (`name: reality-checker`, `subagent: true`, `mainAgent: false`, `tools`) | OK | aguardar o próximo agente a ser configurado pelo usuário |
+- 2026-11-24 13:55 | Configurado o 3º subagent `devsecops-mentor` (somente leitura/execução, sem ferramentas de edição para guiar o usuário sem escrever por ele) em `agents/devsecops-mentor.md` e `.agents/agents/devsecops-mentor.md` | OK | time inicial de 3 subagents pronto (`software-architect`, `reality-checker`, `devsecops-mentor`) |
+- 2026-11-24 15:04 | Acionado o subagent `software-architect` para validar a estrutura atual do projeto e do código frente às convenções e ao modelo de negócio | concluído | relatório arquitetural entregue (modelo de domínio e RLS aprovados; 4 recomendações pragmáticas e 2 correções no roteiro de testes do CONTEXTO.md identificadas) |
+- 2026-11-24 15:15 | Aplicadas as correções arquiteturais recomendadas pelo `software-architect`: (1) aprovação atômica da fila Android em transação única via `expense.Service.CreateTx` + `FOR UPDATE` em `GetMyBankImport`; (2) filtros de período/categoria em `ListWorkspaceExpenseSplits` e `MaxRows` parametrizável (`5000` em relatórios); (3) emissão de alertas de recorrência de 3 dias também no `StartRecurringWorker`; (4) timeout de 35s + 2 tentativas no `ApiClient.kt` (Android) para suportar cold start em PaaS Free; (5) roteiro prático de comandos corrigido neste `CONTEXTO.md`. `sqlc generate`, `go vet` e testes unitários OK | OK | commitar e configurar repositório remoto no GitHub |

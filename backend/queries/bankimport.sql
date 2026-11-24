@@ -64,7 +64,8 @@ SELECT * FROM bank_import_inbox
 SELECT * FROM bank_import_inbox
  WHERE id = @id
    AND household_id = @household_id
-   AND owner_user_id = @owner_user_id;
+   AND owner_user_id = @owner_user_id
+   FOR UPDATE;
 
 -- name: MarkBankImportApproved :one
 UPDATE bank_import_inbox

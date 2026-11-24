@@ -125,6 +125,7 @@ func (s *Service) BuildSummary(ctx context.Context, v workspace.Viewer, wsID uui
 	listRes, err := s.expSvc.ListByWorkspace(ctx, v, wsID, expense.ExpenseFilter{
 		FromDate: &fromDate,
 		ToDate:   &toDate,
+		MaxRows:  5000,
 	})
 	if err != nil {
 		return Summary{}, err

@@ -550,6 +550,8 @@ func (s *Service) StartRecurringWorker(ctx context.Context, pool *expensedb.Quer
 				if res, err := s.GenerateDue(opCtx, v, w.ID, today); err == nil && res.GeneratedCount > 0 {
 					slog.Info("recorrências geradas automaticamente", "workspace_id", w.ID, "count", res.GeneratedCount)
 				}
+				// Emite também alertas deduplicados de vencimento próximo (até 3 dias, E6-D2) em background.
+				_, _ = s.ListRecurringRules(opCtx, v, w.ID)
 			}
 		}
 	}
