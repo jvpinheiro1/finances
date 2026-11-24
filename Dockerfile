@@ -5,16 +5,18 @@
 
 FROM node:24-alpine AS web-build
 WORKDIR /web
-COPY frontend/package.json frontend/package-lock.json* ./
+COPY web/package.json web/package-lock.json* ./
 RUN npm ci || npm install
-COPY frontend/ ./
+COPY web/ ./
 RUN npm run build
 
 FROM golang:1.27-alpine AS api-build
 WORKDIR /src
-COPY backend/go.mod backend/go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
-COPY backend/ ./
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+COPY migrations/ ./migrations/
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/admin ./cmd/admin
 

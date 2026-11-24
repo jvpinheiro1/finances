@@ -48,7 +48,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.x'
-          cache-dependency-path: backend/go.sum
+          cache-dependency-path: go.sum
 
       - name: Criar papéis app_owner e app_rw no PostgreSQL
         env:
@@ -63,24 +63,21 @@ jobs:
           SQL
 
       - name: go vet e build
-        working-directory: backend
         run: |
           go vet ./...
           go build ./...
 
       - name: Testes unitários e de integração (com RLS)
-        working-directory: backend
         env:
           TEST_OWNER_DATABASE_URL: postgres://app_owner:ci_owner_pw@127.0.0.1:5432/financas?sslmode=disable
           TEST_RW_DATABASE_URL: postgres://app_rw:ci_rw_pw@127.0.0.1:5432/financas?sslmode=disable
         run: go test -race -v ./...
 
       - name: govulncheck
-        working-directory: backend
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-  frontend:
-    name: Frontend React + TS (typecheck, build)
+  web:
+    name: Web React + TS (typecheck, build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,10 +86,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Instalar e compilar
-        working-directory: frontend
+        working-directory: web
         run: |
           npm ci
           npm run build

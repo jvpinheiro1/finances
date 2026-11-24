@@ -16,16 +16,20 @@ android/app/build/
 android/local.properties
 
 # Go
-backend/bin/
+bin/
 *.test
 *.out
 coverage.*
 
-# Node / frontend
+# Node / web
 node_modules/
-frontend/dist/
-frontend/dev-dist/
+web/dist/
+web/dev-dist/
 *.tsbuildinfo
+
+# Agentes locais (fora do repositório)
+.agents/
+agents/
 
 # Editores / SO
 .idea/
