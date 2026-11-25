@@ -5,10 +5,13 @@ import {
   ApiError,
   BankImportItem,
   Category,
-  formatCentsBRL,
   parseBRLToCents,
   Workspace,
 } from '../api';
+import { formatMoneyDisplay } from '../utils/format';
+import { formatDateBR } from '../utils/period';
+import { MoneyInput } from './MoneyInput';
+import { SelectField } from './ui/SelectField';
 
 interface AndroidImportsSectionProps {
   workspaces: Workspace[];
@@ -16,6 +19,7 @@ interface AndroidImportsSectionProps {
   categories: Category[];
   devices: AndroidDevice[];
   bankImports: BankImportItem[];
+  hideValues?: boolean;
   onRefresh: () => Promise<void>;
   onError: (msg: string | null) => void;
 }
@@ -26,22 +30,31 @@ export function AndroidImportsSection({
   categories,
   devices,
   bankImports,
+  hideValues = false,
   onRefresh,
   onError,
 }: AndroidImportsSectionProps) {
   const [newDeviceName, setNewDeviceName] = useState('');
+  const [devTouched, setDevTouched] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [importAmountOverrides, setImportAmountOverrides] = useState<Record<string, string>>({});
   const [importTargetWs, setImportTargetWs] = useState<Record<string, string>>({});
   const [importCategoryId, setImportCategoryId] = useState<Record<string, string>>({});
+  const [itemErrors, setItemErrors] = useState<Record<string, string>>({});
+
+  const devError =
+    devTouched && !newDeviceName.trim() ? 'Informe o nome do aparelho.' : null;
 
   async function handleCreateDevice(e: React.FormEvent) {
     e.preventDefault();
     onError(null);
+    setDevTouched(true);
+    if (!newDeviceName.trim()) return;
     try {
-      const res = await api.createDevice(newDeviceName);
+      const res = await api.createDevice(newDeviceName.trim());
       setGeneratedToken(res.plain_token);
       setNewDeviceName('');
+      setDevTouched(false);
       await onRefresh();
     } catch (err) {
       onError(err instanceof ApiError ? err.message : 'Erro ao criar token de dispositivo');
@@ -60,6 +73,7 @@ export function AndroidImportsSection({
 
   async function handleApproveImport(item: BankImportItem) {
     onError(null);
+    setItemErrors((prev) => ({ ...prev, [item.id]: '' }));
     const personalWs = workspaces.find((w) => w.kind === 'personal');
     const targetWsId = importTargetWs[item.id] || personalWs?.id || activeWsId;
     const catId = importCategoryId[item.id] || categories[0]?.id || '';
@@ -67,7 +81,9 @@ export function AndroidImportsSection({
     if (item.parse_status === 'needs_review' || importAmountOverrides[item.id]) {
       const parsed = parseBRLToCents(importAmountOverrides[item.id] ?? '');
       if (parsed === null) {
-        onError('Informe o valor em R$ para aprovar este item da fila.');
+        const msg = 'Informe um valor válido em reais (ex.: 23,33).';
+        setItemErrors((prev) => ({ ...prev, [item.id]: msg }));
+        onError(msg);
         return;
       }
       overrideCents = parsed;
@@ -96,15 +112,12 @@ export function AndroidImportsSection({
   }
 
   return (
-    <section className="panel" aria-labelledby="android-imports-title">
+    <section className="panel" aria-label="Captura Android e Fila">
       <div className="summary-bar">
         <div>
-          <h2 id="android-imports-title">
-            App Android & Fila Privada de Notificações Bancárias ({bankImports.length} pendentes)
-          </h2>
+          <h2>Fila de Notificações Bancárias ({bankImports.length} pendentes)</h2>
           <p className="subtitle">
-            Suporta Nubank, Itaú, Bradesco, Banco do Brasil, Inter, Santander e C6 Bank. Apenas
-            você enxerga as notificações capturadas no seu celular (protegidas por RLS).
+            Nubank, Itaú, Bradesco, Banco do Brasil, Inter, Santander e C6 Bank.
           </p>
         </div>
         <button type="button" className="btn btn-outline btn-sm" onClick={onRefresh}>
@@ -112,7 +125,7 @@ export function AndroidImportsSection({
         </button>
       </div>
 
-      <div className="form-grid form-grid-2" style={{ marginTop: '1.25rem' }}>
+      <div className="form-grid form-grid-2" style={{ marginTop: '1.15rem' }}>
         <div>
           <h3>Parear Celular Android</h3>
           <form className="form-stack" onSubmit={handleCreateDevice}>
@@ -120,13 +133,20 @@ export function AndroidImportsSection({
               <label htmlFor="dev-name">Nome do aparelho</label>
               <input
                 id="dev-name"
+                className={devError ? 'input-invalid' : ''}
                 type="text"
                 required
                 maxLength={80}
                 placeholder="Ex.: Samsung S24 / Pixel 8"
                 value={newDeviceName}
                 onChange={(e) => setNewDeviceName(e.target.value)}
+                onBlur={() => setDevTouched(true)}
               />
+              {devError && (
+                <span className="field-error" role="alert">
+                  {devError}
+                </span>
+              )}
             </div>
             <button type="submit" className="btn btn-primary">
               Gerar Token de Dispositivo
@@ -169,9 +189,9 @@ export function AndroidImportsSection({
         </div>
 
         <div>
-          <h3>Fila de Revisão de Notificações Bancárias</h3>
+          <h3>Revisão Manual</h3>
           {bankImports.length === 0 ? (
-            <p className="subtitle">Nenhuma notificação pendente de revisão.</p>
+            <p className="subtitle">Nenhuma notificação pendente.</p>
           ) : (
             <ul className="expense-list">
               {bankImports.map((item) => {
@@ -185,11 +205,11 @@ export function AndroidImportsSection({
                         <span>{item.merchant_or_title}</span>
                         <span className="badge badge-neutral">{item.bank_code.toUpperCase()}</span>
                         {item.parse_status === 'needs_review' && (
-                          <span className="badge">Informar valor manual</span>
+                          <span className="badge badge-warning">Informar valor</span>
                         )}
                       </div>
                       <div className="expense-meta">
-                        <span>Data: {item.occurred_on}</span>
+                        <span>{formatDateBR(item.occurred_on)}</span>
                         {item.card_last4 && <span>· Cartão •••• {item.card_last4}</span>}
                         {item.parsed_installments > 1 && (
                           <span>· {item.parsed_installments}x</span>
@@ -197,7 +217,7 @@ export function AndroidImportsSection({
                       </div>
 
                       <div className="form-grid form-grid-2" style={{ marginTop: '0.5rem' }}>
-                        <select
+                        <SelectField
                           aria-label="Ambiente de destino"
                           value={selectedWs}
                           onChange={(e) =>
@@ -209,14 +229,12 @@ export function AndroidImportsSection({
                         >
                           {workspaces.map((w) => (
                             <option key={w.id} value={w.id}>
-                              {w.kind === 'personal'
-                                ? 'Meu Espaço Individual (Privado)'
-                                : 'Espaço da Família (Coletivo)'}
+                              {w.kind === 'personal' ? 'Individual 🔒' : 'Coletivo'}
                             </option>
                           ))}
-                        </select>
+                        </SelectField>
 
-                        <select
+                        <SelectField
                           aria-label="Categoria"
                           value={selectedCat}
                           onChange={(e) =>
@@ -231,25 +249,27 @@ export function AndroidImportsSection({
                               {c.name}
                             </option>
                           ))}
-                        </select>
+                        </SelectField>
                       </div>
 
                       <div style={{ marginTop: '0.5rem' }}>
                         {item.parse_status === 'needs_review' ? (
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            placeholder="Valor R$ 0,00"
+                          <MoneyInput
+                            id={`import-amount-${item.id}`}
+                            required
+                            externalError={itemErrors[item.id] || null}
                             value={importAmountOverrides[item.id] ?? ''}
-                            onChange={(e) =>
+                            onChange={(val) =>
                               setImportAmountOverrides((prev) => ({
                                 ...prev,
-                                [item.id]: e.target.value,
+                                [item.id]: val,
                               }))
                             }
                           />
                         ) : (
-                          <strong>{formatCentsBRL(item.parsed_amount_cents ?? 0)}</strong>
+                          <strong className="tabular-nums">
+                            {formatMoneyDisplay(item.parsed_amount_cents ?? 0, hideValues)}
+                          </strong>
                         )}
                       </div>
                     </div>
@@ -260,7 +280,7 @@ export function AndroidImportsSection({
                         className="btn btn-primary btn-sm"
                         onClick={() => handleApproveImport(item)}
                       >
-                        Aprovar despesa
+                        Aprovar
                       </button>
                       <button
                         type="button"

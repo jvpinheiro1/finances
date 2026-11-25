@@ -304,16 +304,52 @@ export function formatCentsBRL(cents: number): string {
   return `${negative ? '- ' : ''}R$ ${reaisFormatted},${centavos}`;
 }
 
-// Converte string digitada ("123,45" ou "123") para centavos inteiros, sem float.
+// Converte string digitada ("123,45", "23.33", "1.234,56" ou "123") para centavos inteiros, sem float.
 export function parseBRLToCents(raw: string): number | null {
-  const cleaned = raw.replace(/[R$\s.]/g, '').trim();
+  const cleaned = raw.replace(/R\$/gi, '').replace(/\s+/g, '');
   if (!cleaned) return null;
-  const match = /^(\d+)(?:,(\d{1,2}))?$/.exec(cleaned);
-  if (!match) return null;
-  const reais = parseInt(match[1], 10);
-  const centStr = (match[2] ?? '').padEnd(2, '0');
-  const centavos = parseInt(centStr, 10);
-  const total = reais * 100 + centavos;
+
+  // Permite apenas dígitos, ponto e vírgula
+  if (!/^[\d.,]+$/.test(cleaned)) return null;
+
+  const hasComma = cleaned.includes(',');
+  const hasDot = cleaned.includes('.');
+
+  if (hasComma && hasDot) {
+    // Formato pt-BR com separador de milhar "." e decimal ",": ex. "1.234,56" ou "12.345.678,9"
+    const match = /^(\d{1,3}(?:\.\d{3})+),(\d{1,2})$/.exec(cleaned);
+    if (!match) return null;
+    const reais = parseInt(match[1].replace(/\./g, ''), 10);
+    const centavos = parseInt(match[2].padEnd(2, '0'), 10);
+    const total = reais * 100 + centavos;
+    return total > 0 ? total : null;
+  }
+
+  if (hasComma) {
+    // Apenas vírgula: deve ser um único separador decimal com 1 ou 2 casas ("23,33", "23,5")
+    const match = /^(\d+),(\d{1,2})$/.exec(cleaned);
+    if (!match) return null;
+    const reais = parseInt(match[1], 10);
+    const centavos = parseInt(match[2].padEnd(2, '0'), 10);
+    const total = reais * 100 + centavos;
+    return total > 0 ? total : null;
+  }
+
+  if (hasDot) {
+    // Apenas ponto: trata como separador decimal quando houver 1 ou 2 dígitos após um único ponto ("23.33", "23.5").
+    // Rejeita formatos ambíguos como "12.345" (3 casas sem vírgula) ou múltiplos pontos "23..33".
+    const match = /^(\d+)\.(\d{1,2})$/.exec(cleaned);
+    if (!match) return null;
+    const reais = parseInt(match[1], 10);
+    const centavos = parseInt(match[2].padEnd(2, '0'), 10);
+    const total = reais * 100 + centavos;
+    return total > 0 ? total : null;
+  }
+
+  // Apenas dígitos inteiros ("45" -> 4500 centavos)
+  if (!/^\d+$/.test(cleaned)) return null;
+  const reais = parseInt(cleaned, 10);
+  const total = reais * 100;
   return total > 0 ? total : null;
 }
 

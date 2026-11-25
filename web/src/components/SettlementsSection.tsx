@@ -4,7 +4,6 @@ import {
   ApiError,
   BalanceSummary,
   centsToInput,
-  formatCentsBRL,
   Household,
   PairDebt,
   parseBRLToCents,
@@ -12,22 +11,24 @@ import {
   SettlementStatus,
   User,
 } from '../api';
+import { formatMoneyDisplay } from '../utils/format';
+import { formatDateBR, toLocalISODate } from '../utils/period';
+import { MoneyInput } from './MoneyInput';
+import { DateInput } from './ui/DateInput';
+import { SelectField } from './ui/SelectField';
 
 const SETTLEMENT_STATUS_LABELS: Record<SettlementStatus, string> = {
-  pending: 'Aguardando confirmação do recebedor',
+  pending: 'Aguardando confirmação',
   confirmed: 'Confirmado',
-  rejected: 'Recusado / Cancelado',
+  rejected: 'Cancelado',
 };
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 interface SettlementsSectionProps {
   user: User;
   household: Household | null;
   balances: BalanceSummary | null;
   settlements: Settlement[];
+  hideValues?: boolean;
   onRefresh: () => Promise<void>;
   onError: (msg: string | null) => void;
 }
@@ -37,6 +38,7 @@ export function SettlementsSection({
   household,
   balances,
   settlements,
+  hideValues = false,
   onRefresh,
   onError,
 }: SettlementsSectionProps) {
@@ -45,28 +47,38 @@ export function SettlementsSection({
   const [stFromUserId, setStFromUserId] = useState(user.id);
   const [stToUserId, setStToUserId] = useState(defaultOther);
   const [stAmountInput, setStAmountInput] = useState('');
-  const [stPaidOn, setStPaidOn] = useState(todayISO());
+  const [stPaidOn, setStPaidOn] = useState(toLocalISODate());
   const [stNotes, setStNotes] = useState('');
 
   if (!household || !balances) {
     return (
       <section className="panel">
-        <p className="subtitle">Carregando saldos da família…</p>
+        <p className="subtitle">Carregando saldos…</p>
       </section>
     );
   }
+
+  const effectiveToUserId = stToUserId || defaultOther;
+  const samePersonError =
+    stFromUserId && effectiveToUserId && stFromUserId === effectiveToUserId
+      ? 'O pagador e o recebedor devem ser familiares diferentes.'
+      : null;
 
   function prefillSettlement(pair: PairDebt) {
     setStFromUserId(pair.from_user_id);
     setStToUserId(pair.to_user_id);
     setStAmountInput(centsToInput(pair.amount_cents));
-    setStPaidOn(todayISO());
-    setStNotes(`Acerto de saldo: ${pair.from_user_name} → ${pair.to_user_name}`);
+    setStPaidOn(toLocalISODate());
+    setStNotes(`Acerto: ${pair.from_user_name} → ${pair.to_user_name}`);
   }
 
   async function handleCreateSettlement(e: React.FormEvent) {
     e.preventDefault();
     onError(null);
+    if (samePersonError) {
+      onError(samePersonError);
+      return;
+    }
     const cents = parseBRLToCents(stAmountInput);
     if (cents === null) {
       onError('Informe um valor válido em reais para o reembolso.');
@@ -75,7 +87,7 @@ export function SettlementsSection({
     try {
       await api.createSettlement({
         from_user_id: stFromUserId,
-        to_user_id: stToUserId || defaultOther,
+        to_user_id: effectiveToUserId,
         amount_cents: cents,
         paid_on: stPaidOn,
         notes: stNotes,
@@ -109,18 +121,12 @@ export function SettlementsSection({
   }
 
   return (
-    <section className="panel" aria-labelledby="balances-title">
-      <h2 id="balances-title">Saldos e Reembolsos da Família</h2>
-      <p className="subtitle">
-        Calculado automaticamente sobre as despesas do ambiente coletivo (descontando estornos) e
-        reembolsos confirmados.
-      </p>
-
-      <div className="form-grid form-grid-2" style={{ marginTop: '1.25rem' }}>
+    <section className="panel" aria-label="Saldos e Reembolsos">
+      <div className="form-grid form-grid-2">
         <div>
           <h3>Quem deve para quem</h3>
           {balances.pairwise.length === 0 ? (
-            <p className="subtitle">Tudo quitado! Nenhuma dívida pendente entre membros.</p>
+            <p className="subtitle">Tudo quitado entre os membros da casa.</p>
           ) : (
             <ul className="expense-list">
               {balances.pairwise.map((p) => (
@@ -131,8 +137,10 @@ export function SettlementsSection({
                 >
                   <div>
                     <strong>{p.from_user_name}</strong> deve{' '}
-                    <strong>{formatCentsBRL(p.amount_cents)}</strong> para{' '}
-                    <strong>{p.to_user_name}</strong>
+                    <strong className="tabular-nums">
+                      {formatMoneyDisplay(p.amount_cents, hideValues)}
+                    </strong>{' '}
+                    para <strong>{p.to_user_name}</strong>
                   </div>
                   {(user.id === p.from_user_id || user.id === p.to_user_id) && (
                     <button
@@ -153,23 +161,33 @@ export function SettlementsSection({
             {balances.members.map((mb) => (
               <li key={mb.user_id} className="member-chip">
                 <strong>{mb.user_name}</strong>:{' '}
-                {mb.net_cents > 0
-                  ? `tem a receber ${formatCentsBRL(mb.net_cents)}`
-                  : mb.net_cents < 0
-                    ? `deve ${formatCentsBRL(-mb.net_cents)}`
-                    : 'zerado (R$ 0,00)'}
+                <span
+                  className={`tabular-nums ${
+                    mb.net_cents > 0 ? 'text-positive' : mb.net_cents < 0 ? 'text-negative' : ''
+                  }`}
+                >
+                  {mb.net_cents > 0
+                    ? `a receber ${formatMoneyDisplay(mb.net_cents, hideValues)}`
+                    : mb.net_cents < 0
+                      ? `deve ${formatMoneyDisplay(-mb.net_cents, hideValues)}`
+                      : `quitado (${formatMoneyDisplay(0, hideValues)})`}
+                </span>
               </li>
             ))}
           </ul>
         </div>
 
         <div>
-          <h3>Registrar reembolso / pagamento</h3>
-          <form className="form-stack" style={{ marginTop: '0.5rem' }} onSubmit={handleCreateSettlement}>
+          <h3>Registrar reembolso</h3>
+          <form
+            className="form-stack"
+            style={{ marginTop: '0.5rem' }}
+            onSubmit={handleCreateSettlement}
+          >
             <div className="form-grid form-grid-2">
               <div className="field">
-                <label htmlFor="st-from">Quem pagou (devedor)</label>
-                <select
+                <label htmlFor="st-from">Quem pagou</label>
+                <SelectField
                   id="st-from"
                   value={stFromUserId}
                   onChange={(e) => setStFromUserId(e.target.value)}
@@ -179,13 +197,14 @@ export function SettlementsSection({
                       {m.name} {m.id === user.id ? '(você)' : ''}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </div>
               <div className="field">
-                <label htmlFor="st-to">Quem recebeu (credor)</label>
-                <select
+                <label htmlFor="st-to">Quem recebeu</label>
+                <SelectField
                   id="st-to"
-                  value={stToUserId || defaultOther}
+                  value={effectiveToUserId}
+                  error={samePersonError}
                   onChange={(e) => setStToUserId(e.target.value)}
                 >
                   {household.members.map((m) => (
@@ -193,31 +212,28 @@ export function SettlementsSection({
                       {m.name} {m.id === user.id ? '(você)' : ''}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </div>
             </div>
 
             <div className="form-grid form-grid-2">
               <div className="field">
-                <label htmlFor="st-amount">Valor (R$)</label>
-                <input
+                <label htmlFor="st-amount">Valor</label>
+                <MoneyInput
                   id="st-amount"
-                  type="text"
-                  inputMode="decimal"
                   required
-                  placeholder="0,00"
                   value={stAmountInput}
-                  onChange={(e) => setStAmountInput(e.target.value)}
+                  onChange={setStAmountInput}
                 />
               </div>
               <div className="field">
-                <label htmlFor="st-date">Data do pagamento</label>
-                <input
+                <label htmlFor="st-date">Data</label>
+                <DateInput
                   id="st-date"
-                  type="date"
                   required
+                  showShortcuts
                   value={stPaidOn}
-                  onChange={(e) => setStPaidOn(e.target.value)}
+                  onChange={setStPaidOn}
                 />
               </div>
             </div>
@@ -232,10 +248,6 @@ export function SettlementsSection({
                 value={stNotes}
                 onChange={(e) => setStNotes(e.target.value)}
               />
-              <p className="field-hint">
-                Se você for quem pagou, o reembolso ficará aguardando confirmação de quem recebeu.
-                Se você for quem recebeu, já entra confirmado.
-              </p>
             </div>
 
             <button type="submit" className="btn btn-primary">
@@ -261,7 +273,7 @@ export function SettlementsSection({
                         st.status === 'confirmed'
                           ? 'badge-private'
                           : st.status === 'pending'
-                            ? ''
+                            ? 'badge-warning'
                             : 'badge-neutral'
                       }`}
                     >
@@ -269,13 +281,15 @@ export function SettlementsSection({
                     </span>
                   </div>
                   <div className="expense-meta">
-                    <span>Data: {st.paid_on}</span>
+                    <span>{formatDateBR(st.paid_on)}</span>
                     {st.notes && <span>· {st.notes}</span>}
                   </div>
                 </div>
 
                 <div className="expense-right">
-                  <span className="expense-value">{formatCentsBRL(st.amount_cents)}</span>
+                  <span className="expense-value">
+                    {formatMoneyDisplay(st.amount_cents, hideValues)}
+                  </span>
                   {st.status === 'pending' && (
                     <div className="expense-actions">
                       {user.id === st.to_user_id && (
@@ -293,7 +307,7 @@ export function SettlementsSection({
                           className="btn btn-danger btn-sm"
                           onClick={() => handleRejectSettlement(st.id)}
                         >
-                          Recusar / Cancelar
+                          Cancelar
                         </button>
                       )}
                     </div>

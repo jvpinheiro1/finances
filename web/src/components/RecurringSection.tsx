@@ -3,7 +3,6 @@ import {
   api,
   ApiError,
   Category,
-  formatCentsBRL,
   Household,
   parseBRLToCents,
   PaymentKind,
@@ -12,25 +11,27 @@ import {
   RecurringRule,
   User,
 } from '../api';
+import { formatMoneyDisplay } from '../utils/format';
+import { formatDateBR, toLocalISODate } from '../utils/period';
+import { CategoryIconBadge } from './CategoryIconBadge';
+import { MoneyInput } from './MoneyInput';
+import { DateInput } from './ui/DateInput';
+import { SelectField } from './ui/SelectField';
 
 const RECURRING_FREQ_LABELS: Record<RecurringFrequency, string> = {
-  monthly: 'Mensal (Assinatura mensal, Aluguel, Luz, Internet)',
-  yearly: 'Anual (Assinatura anual, IPTU, IPVA, Seguro)',
+  monthly: 'Mensal',
+  yearly: 'Anual',
   weekly: 'Semanal',
 };
 
 const PAYMENT_KIND_LABELS: Record<PaymentKind, string> = {
   pix: 'PIX',
   credit_card: 'Cartão de Crédito',
-  debit: 'Cartão de Débito',
+  debit: 'Débito',
   cash: 'Dinheiro',
   transfer: 'Transferência',
   other: 'Outro',
 };
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 interface RecurringSectionProps {
   user: User;
@@ -40,6 +41,7 @@ interface RecurringSectionProps {
   categories: Category[];
   paymentMethods: PaymentMethod[];
   recurringRules: RecurringRule[];
+  hideValues?: boolean;
   onRefresh: () => Promise<void>;
   onError: (msg: string | null) => void;
 }
@@ -52,27 +54,37 @@ export function RecurringSection({
   categories,
   paymentMethods,
   recurringRules,
+  hideValues = false,
   onRefresh,
   onError,
 }: RecurringSectionProps) {
   const [recDesc, setRecDesc] = useState('');
+  const [descTouched, setDescTouched] = useState(false);
   const [recAmountInput, setRecAmountInput] = useState('');
   const [recFreq, setRecFreq] = useState<RecurringFrequency>('monthly');
-  const [recStartDate, setRecStartDate] = useState(todayISO());
+  const [recStartDate, setRecStartDate] = useState(toLocalISODate());
   const [recCategoryId, setRecCategoryId] = useState(categories[0]?.id ?? '');
   const [recPaymentMethodId, setRecPaymentMethodId] = useState('');
   const [recPaidByUserId, setRecPaidByUserId] = useState(user.id);
   const [recNotes, setRecNotes] = useState('');
 
   const effectiveCatId = recCategoryId || categories[0]?.id || '';
+  const descError =
+    descTouched && !recDesc.trim() ? 'Informe o nome da assinatura ou conta.' : null;
 
   async function handleCreateRecurring(e: React.FormEvent) {
     e.preventDefault();
     if (!activeWsId) return;
     onError(null);
+    setDescTouched(true);
+
+    if (!recDesc.trim()) {
+      onError('Informe o nome da assinatura ou conta.');
+      return;
+    }
     const cents = parseBRLToCents(recAmountInput);
     if (cents === null) {
-      onError('Informe um valor válido em reais para a assinatura ou conta recorrente.');
+      onError('Informe um valor válido em reais.');
       return;
     }
     try {
@@ -81,13 +93,14 @@ export function RecurringSection({
         payment_method_id: recPaymentMethodId ? recPaymentMethodId : null,
         paid_by_user_id: isCollective ? recPaidByUserId : user.id,
         amount_cents: cents,
-        description: recDesc,
+        description: recDesc.trim(),
         notes: recNotes,
         frequency: recFreq,
         start_date: recStartDate,
         split_strategy: 'equal',
       });
       setRecDesc('');
+      setDescTouched(false);
       setRecAmountInput('');
       setRecNotes('');
       await onRefresh();
@@ -140,21 +153,11 @@ export function RecurringSection({
   }
 
   return (
-    <section className="panel" aria-labelledby="recurring-title">
+    <section className="panel" aria-label="Recorrentes e Assinaturas">
       <div className="summary-bar">
-        <div>
-          <h2 id="recurring-title">
-            {isCollective
-              ? 'Contas Recorrentes e Assinaturas da Família (Coletivo)'
-              : 'Minhas Assinaturas e Contas Recorrentes (Individual)'}
-          </h2>
-          <p className="subtitle">
-            Cadastre assinaturas mensais/anuais (Netflix, Spotify, Internet, Academia) e contas
-            fixas ou variáveis (Aluguel, Luz, Água).
-          </p>
-        </div>
-        <button type="button" className="btn btn-primary" onClick={handleGenerateRecurring}>
-          Gerar recorrências vencidas agora
+        <h2>{isCollective ? 'Coletivo' : 'Individual 🔒'} · Nova recorrência</h2>
+        <button type="button" className="btn btn-outline btn-sm" onClick={handleGenerateRecurring}>
+          Gerar vencidas agora
         </button>
       </div>
 
@@ -164,29 +167,33 @@ export function RecurringSection({
             <label htmlFor="rec-desc">Nome da assinatura ou conta</label>
             <input
               id="rec-desc"
+              className={descError ? 'input-invalid' : ''}
               type="text"
               required
               maxLength={160}
-              placeholder="Ex.: Netflix, Spotify, Conta de Luz, Condomínio"
+              placeholder="Ex.: Netflix, Luz, Condomínio"
               value={recDesc}
               onChange={(e) => setRecDesc(e.target.value)}
+              onBlur={() => setDescTouched(true)}
             />
+            {descError && (
+              <span className="field-error" role="alert">
+                {descError}
+              </span>
+            )}
           </div>
           <div className="field">
-            <label htmlFor="rec-amount">Valor padrão / referência (R$)</label>
-            <input
+            <label htmlFor="rec-amount">Valor padrão</label>
+            <MoneyInput
               id="rec-amount"
-              type="text"
-              inputMode="decimal"
               required
-              placeholder="0,00"
               value={recAmountInput}
-              onChange={(e) => setRecAmountInput(e.target.value)}
+              onChange={setRecAmountInput}
             />
           </div>
           <div className="field">
             <label htmlFor="rec-freq">Periodicidade</label>
-            <select
+            <SelectField
               id="rec-freq"
               value={recFreq}
               onChange={(e) => setRecFreq(e.target.value as RecurringFrequency)}
@@ -196,14 +203,14 @@ export function RecurringSection({
                   {RECURRING_FREQ_LABELS[f]}
                 </option>
               ))}
-            </select>
+            </SelectField>
           </div>
         </div>
 
         <div className="form-grid form-grid-3">
           <div className="field">
             <label htmlFor="rec-cat">Categoria</label>
-            <select
+            <SelectField
               id="rec-cat"
               required
               value={effectiveCatId}
@@ -214,11 +221,11 @@ export function RecurringSection({
                   {c.name}
                 </option>
               ))}
-            </select>
+            </SelectField>
           </div>
           <div className="field">
             <label htmlFor="rec-pm">Meio de pagamento (opcional)</label>
-            <select
+            <SelectField
               id="rec-pm"
               value={recPaymentMethodId}
               onChange={(e) => setRecPaymentMethodId(e.target.value)}
@@ -230,16 +237,15 @@ export function RecurringSection({
                   {pm.last4 ? ` •••• ${pm.last4}` : ''})
                 </option>
               ))}
-            </select>
+            </SelectField>
           </div>
           <div className="field">
-            <label htmlFor="rec-start">Data do 1º / próximo vencimento</label>
-            <input
+            <label htmlFor="rec-start">Próximo vencimento</label>
+            <DateInput
               id="rec-start"
-              type="date"
               required
               value={recStartDate}
-              onChange={(e) => setRecStartDate(e.target.value)}
+              onChange={setRecStartDate}
             />
           </div>
         </div>
@@ -248,7 +254,7 @@ export function RecurringSection({
           {isCollective && household && (
             <div className="field">
               <label htmlFor="rec-paidby">Pago por</label>
-              <select
+              <SelectField
                 id="rec-paidby"
                 value={recPaidByUserId}
                 onChange={(e) => setRecPaidByUserId(e.target.value)}
@@ -258,7 +264,7 @@ export function RecurringSection({
                     {m.name} {m.id === user.id ? '(você)' : ''}
                   </option>
                 ))}
-              </select>
+              </SelectField>
             </div>
           )}
           <div className="field">
@@ -267,7 +273,7 @@ export function RecurringSection({
               id="rec-notes"
               type="text"
               maxLength={500}
-              placeholder="Ex.: Valor variável conforme fatura mensal"
+              placeholder="Ex.: Valor variável conforme fatura"
               value={recNotes}
               onChange={(e) => setRecNotes(e.target.value)}
             />
@@ -276,35 +282,42 @@ export function RecurringSection({
 
         <div>
           <button type="submit" className="btn btn-primary">
-            Cadastrar assinatura / recorrência
+            Cadastrar recorrência
           </button>
         </div>
       </form>
 
       <div style={{ marginTop: '1.5rem' }}>
-        <h3>Recorrências cadastradas neste ambiente ({recurringRules.length})</h3>
+        <h3>Cadastradas ({recurringRules.length})</h3>
         {recurringRules.length === 0 ? (
-          <p className="subtitle">Nenhuma assinatura ou conta recorrente cadastrada ainda.</p>
+          <p className="subtitle">Nenhuma assinatura ou conta recorrente cadastrada.</p>
         ) : (
           <ul className="expense-list">
             {recurringRules.map((rule) => (
               <li key={rule.id} className="expense-item" style={{ padding: '0.85rem 1rem' }}>
-                <div className="expense-main">
-                  <div className="expense-title">
-                    <span>{rule.description}</span>
-                    <span className="badge badge-neutral">{rule.category_name}</span>
-                    <span className={`badge ${rule.is_active ? 'badge-private' : 'badge-neutral'}`}>
-                      {rule.is_active ? 'Ativa' : 'Pausada'}
-                    </span>
-                  </div>
-                  <div className="expense-meta">
-                    <span>Próximo lançamento: {rule.next_due_date}</span>
-                    <span>· Pago por: {rule.paid_by_name}</span>
-                    {rule.notes && <span>· {rule.notes}</span>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
+                  <CategoryIconBadge name={rule.category_name} categoryId={rule.category_id} />
+                  <div className="expense-main">
+                    <div className="expense-title">
+                      <span>{rule.description}</span>
+                      <span className="badge badge-neutral">{rule.category_name}</span>
+                      <span
+                        className={`badge ${rule.is_active ? 'badge-private' : 'badge-neutral'}`}
+                      >
+                        {rule.is_active ? 'Ativa' : 'Pausada'}
+                      </span>
+                    </div>
+                    <div className="expense-meta">
+                      <span>Próximo: {formatDateBR(rule.next_due_date)}</span>
+                      <span>· {rule.paid_by_name}</span>
+                      {rule.notes && <span>· {rule.notes}</span>}
+                    </div>
                   </div>
                 </div>
                 <div className="expense-right">
-                  <span className="expense-value">{formatCentsBRL(rule.amount_cents)}</span>
+                  <span className="expense-value">
+                    {formatMoneyDisplay(rule.amount_cents, hideValues)}
+                  </span>
                   <div className="expense-actions">
                     <button
                       type="button"

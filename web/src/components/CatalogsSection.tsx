@@ -8,6 +8,8 @@ import {
   PaymentMethod,
   User,
 } from '../api';
+import { CategoryIconBadge } from './CategoryIconBadge';
+import { SelectField } from './ui/SelectField';
 
 const PAYMENT_KIND_LABELS: Record<PaymentKind, string> = {
   pix: 'PIX',
@@ -38,20 +40,54 @@ export function CatalogsSection({
   onError,
 }: CatalogsSectionProps) {
   const [newCatName, setNewCatName] = useState('');
+  const [catTouched, setCatTouched] = useState(false);
+
   const [newPmName, setNewPmName] = useState('');
+  const [pmNameTouched, setPmNameTouched] = useState(false);
   const [newPmKind, setNewPmKind] = useState<PaymentKind>('pix');
   const [newPmLast4, setNewPmLast4] = useState('');
   const [newPmClosingDay, setNewPmClosingDay] = useState('');
   const [newPmDueDay, setNewPmDueDay] = useState('');
   const [newPmPersonal, setNewPmPersonal] = useState(false);
 
+  const catNameError =
+    catTouched && !newCatName.trim() ? 'Informe o nome da categoria.' : null;
+  const pmNameError =
+    pmNameTouched && !newPmName.trim() ? 'Informe o nome ou apelido do meio de pagamento.' : null;
+
+  const isCard = newPmKind === 'credit_card' || newPmKind === 'debit';
+  const last4Trimmed = newPmLast4.trim();
+  const last4Error =
+    isCard && last4Trimmed && !/^\d{4}$/.test(last4Trimmed)
+      ? 'Informe exatamente 4 dígitos numéricos (ex.: 1234).'
+      : null;
+
+  const closingDayNum = newPmClosingDay.trim() ? Number(newPmClosingDay.trim()) : null;
+  const closingDayError =
+    newPmKind === 'credit_card' &&
+    closingDayNum !== null &&
+    (!Number.isInteger(closingDayNum) || closingDayNum < 1 || closingDayNum > 31)
+      ? 'O dia de fechamento deve estar entre 1 e 31.'
+      : null;
+
+  const dueDayNum = newPmDueDay.trim() ? Number(newPmDueDay.trim()) : null;
+  const dueDayError =
+    newPmKind === 'credit_card' &&
+    dueDayNum !== null &&
+    (!Number.isInteger(dueDayNum) || dueDayNum < 1 || dueDayNum > 31)
+      ? 'O dia de vencimento deve estar entre 1 e 31.'
+      : null;
+
   async function handleCreateCategory(e: React.FormEvent) {
     e.preventDefault();
     onError(null);
+    setCatTouched(true);
+    if (!newCatName.trim()) return;
     try {
-      const created = await api.createCategory(newCatName);
+      const created = await api.createCategory(newCatName.trim());
       onCategoryCreated(created);
       setNewCatName('');
+      setCatTouched(false);
     } catch (err) {
       onError(err instanceof ApiError ? err.message : 'Erro ao criar categoria');
     }
@@ -60,28 +96,25 @@ export function CatalogsSection({
   async function handleCreatePaymentMethod(e: React.FormEvent) {
     e.preventDefault();
     onError(null);
-    const cd =
-      newPmKind === 'credit_card' && newPmClosingDay.trim()
-        ? parseInt(newPmClosingDay.trim(), 10)
-        : undefined;
-    const dd =
-      newPmKind === 'credit_card' && newPmDueDay.trim()
-        ? parseInt(newPmDueDay.trim(), 10)
-        : undefined;
+    setPmNameTouched(true);
+    if (!newPmName.trim()) return;
+    if (last4Error || closingDayError || dueDayError) {
+      onError(last4Error || closingDayError || dueDayError);
+      return;
+    }
+
     try {
       const created = await api.createPaymentMethod({
-        name: newPmName,
+        name: newPmName.trim(),
         kind: newPmKind,
-        last4:
-          (newPmKind === 'credit_card' || newPmKind === 'debit') && newPmLast4.trim()
-            ? newPmLast4.trim()
-            : undefined,
-        closing_day: cd,
-        due_day: dd,
+        last4: isCard && last4Trimmed ? last4Trimmed : undefined,
+        closing_day: newPmKind === 'credit_card' && closingDayNum !== null ? closingDayNum : undefined,
+        due_day: newPmKind === 'credit_card' && dueDayNum !== null ? dueDayNum : undefined,
         is_personal: newPmPersonal,
       });
       onPaymentMethodCreated(created);
       setNewPmName('');
+      setPmNameTouched(false);
       setNewPmLast4('');
       setNewPmClosingDay('');
       setNewPmDueDay('');
@@ -92,28 +125,33 @@ export function CatalogsSection({
 
   return (
     <div>
-      <section className="panel" aria-labelledby="catalogs-title">
-        <h2 id="catalogs-title">Categorias e Meios de Pagamento</h2>
-        <p className="subtitle">
-          Gerencie as categorias da residência e seus cartões/contas (com dias de fechamento e
-          vencimento para cálculo automático de faturas).
-        </p>
-
-        <div className="form-grid form-grid-2" style={{ marginTop: '1.25rem' }}>
+      <section className="panel" aria-label="Categorias e Meios de Pagamento">
+        <div className="form-grid form-grid-2">
           <div>
-            <h3>Nova Categoria (compartilhada na casa)</h3>
+            <h3>Categorias</h3>
             <form className="form-stack" onSubmit={handleCreateCategory}>
               <div className="field">
-                <label htmlFor="new-cat-name">Nome da categoria</label>
-                <input
-                  id="new-cat-name"
-                  type="text"
-                  required
-                  maxLength={60}
-                  placeholder="Ex.: Pet, Assinaturas"
-                  value={newCatName}
-                  onChange={(e) => setNewCatName(e.target.value)}
-                />
+                <label htmlFor="new-cat-name">Nova categoria</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <CategoryIconBadge name={newCatName || 'Nova'} />
+                  <input
+                    id="new-cat-name"
+                    className={catNameError ? 'input-invalid' : ''}
+                    type="text"
+                    required
+                    maxLength={60}
+                    placeholder="Ex.: Pet, Assinaturas, Farmácia"
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    onBlur={() => setCatTouched(true)}
+                    style={{ flex: 1 }}
+                  />
+                </div>
+                {catNameError && (
+                  <span className="field-error" role="alert">
+                    {catNameError}
+                  </span>
+                )}
               </div>
               <button type="submit" className="btn btn-primary">
                 Adicionar categoria
@@ -122,31 +160,39 @@ export function CatalogsSection({
             <ul className="member-list" aria-label="Categorias cadastradas">
               {categories.map((c) => (
                 <li key={c.id} className="member-chip">
-                  {c.name}
+                  <CategoryIconBadge name={c.name} categoryId={c.id} />
+                  <span>{c.name}</span>
                 </li>
               ))}
             </ul>
           </div>
 
           <div>
-            <h3>Novo Meio de Pagamento</h3>
+            <h3>Meios de Pagamento</h3>
             <form className="form-stack" onSubmit={handleCreatePaymentMethod}>
               <div className="field">
                 <label htmlFor="new-pm-name">Nome / Apelido</label>
                 <input
                   id="new-pm-name"
+                  className={pmNameError ? 'input-invalid' : ''}
                   type="text"
                   required
                   maxLength={60}
                   placeholder="Ex.: Cartão Nubank, PIX Casa"
                   value={newPmName}
                   onChange={(e) => setNewPmName(e.target.value)}
+                  onBlur={() => setPmNameTouched(true)}
                 />
+                {pmNameError && (
+                  <span className="field-error" role="alert">
+                    {pmNameError}
+                  </span>
+                )}
               </div>
               <div className="form-grid form-grid-2">
                 <div className="field">
                   <label htmlFor="new-pm-kind">Tipo</label>
-                  <select
+                  <SelectField
                     id="new-pm-kind"
                     value={newPmKind}
                     onChange={(e) => setNewPmKind(e.target.value as PaymentKind)}
@@ -156,29 +202,36 @@ export function CatalogsSection({
                         {PAYMENT_KIND_LABELS[k]}
                       </option>
                     ))}
-                  </select>
+                  </SelectField>
                 </div>
-                {(newPmKind === 'credit_card' || newPmKind === 'debit') && (
+                {isCard && (
                   <div className="field">
-                    <label htmlFor="new-pm-last4">4 últimos dígitos (opcional)</label>
+                    <label htmlFor="new-pm-last4">4 últimos dígitos (opc.)</label>
                     <input
                       id="new-pm-last4"
+                      className={last4Error ? 'input-invalid' : ''}
                       type="text"
                       inputMode="numeric"
                       maxLength={4}
                       placeholder="1234"
                       value={newPmLast4}
-                      onChange={(e) => setNewPmLast4(e.target.value)}
+                      onChange={(e) => setNewPmLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
                     />
+                    {last4Error && (
+                      <span className="field-error" role="alert">
+                        {last4Error}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
               {newPmKind === 'credit_card' && (
                 <div className="form-grid form-grid-2">
                   <div className="field">
-                    <label htmlFor="new-pm-closing">Dia de fechamento (1–31, opc.)</label>
+                    <label htmlFor="new-pm-closing">Fechamento (1–31, opc.)</label>
                     <input
                       id="new-pm-closing"
+                      className={closingDayError ? 'input-invalid' : ''}
                       type="number"
                       min={1}
                       max={31}
@@ -186,11 +239,17 @@ export function CatalogsSection({
                       value={newPmClosingDay}
                       onChange={(e) => setNewPmClosingDay(e.target.value)}
                     />
+                    {closingDayError && (
+                      <span className="field-error" role="alert">
+                        {closingDayError}
+                      </span>
+                    )}
                   </div>
                   <div className="field">
-                    <label htmlFor="new-pm-due">Dia de vencimento (1–31, opc.)</label>
+                    <label htmlFor="new-pm-due">Vencimento (1–31, opc.)</label>
                     <input
                       id="new-pm-due"
+                      className={dueDayError ? 'input-invalid' : ''}
                       type="number"
                       min={1}
                       max={31}
@@ -198,6 +257,11 @@ export function CatalogsSection({
                       value={newPmDueDay}
                       onChange={(e) => setNewPmDueDay(e.target.value)}
                     />
+                    {dueDayError && (
+                      <span className="field-error" role="alert">
+                        {dueDayError}
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
@@ -207,7 +271,7 @@ export function CatalogsSection({
                   checked={newPmPersonal}
                   onChange={(e) => setNewPmPersonal(e.target.checked)}
                 />
-                <span>Meio de pagamento pessoal (visível somente para mim)</span>
+                <span>Meio pessoal (visível somente para mim)</span>
               </label>
               <button type="submit" className="btn btn-primary">
                 Adicionar meio de pagamento
@@ -230,7 +294,7 @@ export function CatalogsSection({
 
       {household && (
         <section className="panel" aria-labelledby="members-heading">
-          <h2 id="members-heading">Membros ativos da residência ({household.members.length})</h2>
+          <h3 id="members-heading">Membros da residência ({household.members.length})</h3>
           <ul className="member-list">
             {household.members.map((m) => (
               <li key={m.id} className="member-chip">

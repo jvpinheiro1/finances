@@ -4,12 +4,14 @@ interface NotificationsSectionProps {
   notifications: AppNotification[];
   unreadCount: number;
   onRefresh: () => Promise<void>;
+  onBackHome?: () => void;
 }
 
 export function NotificationsSection({
   notifications,
   unreadCount,
   onRefresh,
+  onBackHome,
 }: NotificationsSectionProps) {
   async function handleMarkNotificationRead(id: string) {
     try {
@@ -40,13 +42,15 @@ export function NotificationsSection({
       <div className="summary-bar">
         <div>
           <h2 id="notifications-title">
-            Minha Caixa de Entrada ({unreadCount} não {unreadCount === 1 ? 'lida' : 'lidas'})
+            Caixa de Entrada ({unreadCount} não {unreadCount === 1 ? 'lida' : 'lidas'})
           </h2>
-          <p className="subtitle">
-            Notificações privadas da sua conta (protegidas por RLS individual no banco).
-          </p>
         </div>
         <div className="user-bar">
+          {onBackHome && (
+            <button type="button" className="btn btn-outline btn-sm" onClick={onBackHome}>
+              ← Voltar ao Início
+            </button>
+          )}
           {typeof window !== 'undefined' &&
             'Notification' in window &&
             Notification.permission === 'default' && (
@@ -55,7 +59,7 @@ export function NotificationsSection({
                 className="btn btn-outline btn-sm"
                 onClick={handleEnableBrowserNotifications}
               >
-                Ativar alerta discreto no navegador
+                Ativar alerta no navegador
               </button>
             )}
           {unreadCount > 0 && (

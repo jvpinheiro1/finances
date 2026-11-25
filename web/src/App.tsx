@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router';
+import {
   AndroidDevice,
   api,
   ApiError,
@@ -8,7 +17,6 @@ import {
   BankImportItem,
   Category,
   Expense,
-  formatCentsBRL,
   Household,
   PaymentMethod,
   RecurringRule,
@@ -19,55 +27,77 @@ import {
 } from './api';
 import { AndroidImportsSection } from './components/AndroidImportsSection';
 import { CatalogsSection } from './components/CatalogsSection';
+import { ExpenseDetailSheet } from './components/ExpenseDetailSheet';
+import { ExpenseFormSheet } from './components/ExpenseFormSheet';
 import { ExpensesSection } from './components/ExpensesSection';
+import { HomeSection } from './components/HomeSection';
 import { NotificationsSection } from './components/NotificationsSection';
 import { RecurringSection } from './components/RecurringSection';
 import { ReportsSection } from './components/ReportsSection';
 import { SettlementsSection } from './components/SettlementsSection';
+import { buildPeriodState, PeriodState } from './utils/period';
 
-type NavSection =
-  | 'expenses'
-  | 'settlements'
-  | 'recurring'
-  | 'reports'
-  | 'android'
-  | 'catalogs'
-  | 'notifications';
+type ThemeMode = 'dark' | 'light';
 
-const SECTION_META: Record<NavSection, { title: string; subtitle: string }> = {
-  expenses: {
-    title: 'Visão Geral & Despesas',
-    subtitle: 'Lançamentos, compras parceladas (1x a 48x), rateio coletivo e estornos.',
+const THEME_STORAGE_KEY = 'ff_theme';
+const HIDE_VALUES_STORAGE_KEY = 'ff_hide_values';
+
+function loadInitialTheme(): ThemeMode {
+  try {
+    const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch {
+    // ignora
+  }
+  return 'dark';
+}
+
+function loadInitialHideValues(): boolean {
+  try {
+    return window.localStorage.getItem(HIDE_VALUES_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+const ROUTE_META: Record<string, { title: string; subtitle: string }> = {
+  '/': {
+    title: 'Início',
+    subtitle: 'Visão geral do período',
   },
-  settlements: {
-    title: 'Saldos & Reembolsos da Família',
-    subtitle: 'Posição líquida consolidada, quem deve para quem e confirmação de acertos.',
+  '/lancamentos': {
+    title: 'Lançamentos',
+    subtitle: 'Histórico, filtros e parcelamentos',
   },
-  recurring: {
+  '/saldos': {
+    title: 'Saldos & Reembolsos',
+    subtitle: 'Acertos entre membros da casa',
+  },
+  '/recorrentes': {
     title: 'Recorrentes & Assinaturas',
-    subtitle: 'Contas fixas ou variáveis e assinaturas mensais/anuais com geração automática.',
+    subtitle: 'Contas fixas e assinaturas periódicas',
   },
-  reports: {
-    title: 'Relatórios Financeiros (CSV / PDF)',
-    subtitle: 'Consolidação por categoria, meio de pagamento e membro com exportação nativa.',
+  '/relatorios': {
+    title: 'Relatórios',
+    subtitle: 'Exportação CSV e PDF',
   },
-  android: {
-    title: 'App Android & Fila Bancária',
-    subtitle: 'Pareamento de celular e revisão privada de notificações bancárias capturadas.',
+  '/android': {
+    title: 'Captura Android',
+    subtitle: 'Dispositivos e fila de notificações bancárias',
   },
-  catalogs: {
-    title: 'Categorias, Cartões & Família',
-    subtitle: 'Gestão de categorias, cartões (com fechamento/vencimento) e membros ativos.',
+  '/cadastros': {
+    title: 'Cadastros',
+    subtitle: 'Categorias, meios de pagamento e membros',
   },
-  notifications: {
-    title: 'Caixa de Entrada & Alertas',
-    subtitle: 'Notificações privadas da sua conta sobre divisões, reembolsos e vencimentos.',
+  '/notificacoes': {
+    title: 'Notificações',
+    subtitle: 'Alertas e avisos da sua conta',
   },
 };
 
 function HomeIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M4 10.5L12 4l8 6.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8.5z"
         stroke="currentColor"
@@ -92,20 +122,15 @@ function MenuIcon() {
   );
 }
 
-function WalletIcon() {
+function ListIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect
-        x="3"
-        y="6"
-        width="18"
-        height="13"
-        rx="2"
+      <path
+        d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
         stroke="currentColor"
         strokeWidth="2"
+        strokeLinecap="round"
       />
-      <path d="M16 12.5h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M3 10h18" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
@@ -196,9 +221,81 @@ function BellIcon() {
   );
 }
 
+function EyeIcon({ off }: { off: boolean }) {
+  if (off) {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.9" />
+    </svg>
+  );
+}
+
+function ThemeIcon({ theme }: { theme: ThemeMode }) {
+  if (theme === 'dark') {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="5" stroke="currentColor" strokeWidth="1.9" />
+        <path
+          d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<ThemeMode>(loadInitialTheme);
+  const [hideValues, setHideValues] = useState<boolean>(loadInitialHideValues);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // ignora
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HIDE_VALUES_STORAGE_KEY, hideValues ? '1' : '0');
+    } catch {
+      // ignora
+    }
+  }, [hideValues]);
 
   useEffect(() => {
     api
@@ -207,6 +304,14 @@ export function App() {
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
+
+  function toggleTheme() {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }
+
+  function toggleHideValues() {
+    setHideValues((prev) => !prev);
+  }
 
   if (loading) {
     return (
@@ -217,7 +322,7 @@ export function App() {
   }
 
   if (!user) {
-    return <LoginScreen onLoggedIn={setUser} />;
+    return <LoginScreen onLoggedIn={setUser} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
   if (user.must_change_password) {
@@ -230,10 +335,27 @@ export function App() {
     );
   }
 
-  return <DashboardScreen user={user} onLogout={() => setUser(null)} />;
+  return (
+    <DashboardShell
+      user={user}
+      onLogout={() => setUser(null)}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+      hideValues={hideValues}
+      onToggleHideValues={toggleHideValues}
+    />
+  );
 }
 
-function LoginScreen({ onLoggedIn }: { onLoggedIn: (u: User) => void }) {
+function LoginScreen({
+  onLoggedIn,
+  theme,
+  onToggleTheme,
+}: {
+  onLoggedIn: (u: User) => void;
+  theme: ThemeMode;
+  onToggleTheme: () => void;
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -256,14 +378,28 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (u: User) => void }) {
   return (
     <main className="layout-center">
       <section className="card" aria-labelledby="login-title">
-        <div className="brand-header">
-          <span className="brand-icon">
-            <HomeIcon />
-          </span>
-          <div>
-            <h1 id="login-title">Finanças Família</h1>
-            <p className="subtitle">Acesso restrito aos membros da casa</p>
+        <div
+          className="brand-header"
+          style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span className="brand-icon">
+              <HomeIcon />
+            </span>
+            <div>
+              <h1 id="login-title">Finanças Família</h1>
+              <p className="subtitle">Acesso restrito aos membros da casa</p>
+            </div>
           </div>
+
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+            onClick={onToggleTheme}
+          >
+            <ThemeIcon theme={theme} />
+          </button>
         </div>
 
         <form className="form-stack" onSubmit={handleSubmit} noValidate>
@@ -297,7 +433,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (u: User) => void }) {
             />
           </div>
 
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
+          <button type="submit" className="btn btn-primary btn-pill" disabled={submitting}>
             {submitting ? 'Entrando…' : 'Entrar'}
           </button>
         </form>
@@ -403,10 +539,10 @@ function ChangePasswordScreen({
             />
           </div>
 
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
+          <button type="submit" className="btn btn-primary btn-pill" disabled={submitting}>
             {submitting ? 'Salvando…' : 'Definir senha definitiva'}
           </button>
-          <button type="button" className="btn btn-outline" onClick={handleLogout}>
+          <button type="button" className="btn btn-outline btn-pill" onClick={handleLogout}>
             Sair
           </button>
         </form>
@@ -415,9 +551,35 @@ function ChangePasswordScreen({
   );
 }
 
-function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const [activeSection, setActiveSection] = useState<NavSection>('expenses');
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+function DashboardShell({
+  user,
+  onLogout,
+  theme,
+  onToggleTheme,
+  hideValues,
+  onToggleHideValues,
+}: {
+  user: User;
+  onLogout: () => void;
+  theme: ThemeMode;
+  onToggleTheme: () => void;
+  hideValues: boolean;
+  onToggleHideValues: () => void;
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Período padrão: Mês corrente (DA-6 = A)
+  const [period, setPeriod] = useState<PeriodState>(() => buildPeriodState('month'));
+  const [filterCatId, setFilterCatId] = useState<string>(() => searchParams.get('cat') ?? '');
+
+  // Sheets de Nova/Editar Despesa e Detalhe da Despesa
+  const [expenseFormOpen, setExpenseFormOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
 
   const [household, setHousehold] = useState<Household | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -427,9 +589,6 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [totalCents, setTotalCents] = useState<number>(0);
-  const [filterFrom, setFilterFrom] = useState<string>('');
-  const [filterTo, setFilterTo] = useState<string>('');
-  const [filterCatId, setFilterCatId] = useState<string>('');
 
   const [balances, setBalances] = useState<BalanceSummary | null>(null);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
@@ -444,6 +603,35 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
   const prevUnreadRef = useRef<number>(0);
 
   const [error, setError] = useState<string | null>(null);
+
+  // Fecha o drawer mobile ao mudar de rota
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [location.pathname]);
+
+  // Sincroniza query param ?cat= caso exista
+  useEffect(() => {
+    const catFromUrl = searchParams.get('cat') ?? '';
+    if (catFromUrl !== filterCatId) {
+      setFilterCatId(catFromUrl);
+    }
+  }, [searchParams, filterCatId]);
+
+  function handleCategoryFilterChange(catId: string) {
+    setFilterCatId(catId);
+    const nextParams = new URLSearchParams(searchParams);
+    if (catId) {
+      nextParams.set('cat', catId);
+    } else {
+      nextParams.delete('cat');
+    }
+    setSearchParams(nextParams, { replace: true });
+  }
+
+  function handleFilterCategoryFromHome(catId: string) {
+    setFilterCatId(catId);
+    navigate(`/lancamentos?cat=${encodeURIComponent(catId)}`);
+  }
 
   const loadAndroidImports = useCallback(async () => {
     try {
@@ -466,7 +654,7 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
         'Notification' in window &&
         Notification.permission === 'granted'
       ) {
-        // E6-D1 / ADR 0009: nunca expõe valores financeiros nem descrições privadas no banner do SO.
+        // E6-D1 / ADR 0009: nunca expõe valores financeiros no banner do SO.
         new Notification('Finanças Família', {
           body: 'Você tem uma nova atualização na sua caixa de entrada.',
           icon: '/icon.svg',
@@ -516,10 +704,10 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
 
   const refreshAll = useCallback(async () => {
     await Promise.all([
-      loadWorkspaceData(activeWsId, filterFrom, filterTo, filterCatId),
+      loadWorkspaceData(activeWsId, period.from, period.to, filterCatId),
       loadCollectiveBalances(),
     ]);
-  }, [activeWsId, filterFrom, filterTo, filterCatId, loadWorkspaceData, loadCollectiveBalances]);
+  }, [activeWsId, period.from, period.to, filterCatId, loadWorkspaceData, loadCollectiveBalances]);
 
   useEffect(() => {
     Promise.all([
@@ -548,54 +736,73 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
 
   useEffect(() => {
     if (activeWsId) {
-      void loadWorkspaceData(activeWsId, filterFrom, filterTo, filterCatId);
+      void loadWorkspaceData(activeWsId, period.from, period.to, filterCatId);
     }
-  }, [activeWsId, filterFrom, filterTo, filterCatId, loadWorkspaceData]);
+  }, [activeWsId, period.from, period.to, filterCatId, loadWorkspaceData]);
 
   async function handleLogout() {
     await api.logout().catch(() => undefined);
     onLogout();
   }
 
-  function handleSelectSection(section: NavSection) {
-    setActiveSection(section);
-    setMobileSidebarOpen(false);
+  function openNewExpenseSheet() {
+    setEditingExpense(null);
+    setExpenseFormOpen(true);
+  }
+
+  function openEditExpenseSheet(exp: Expense) {
+    setEditingExpense(exp);
+    setExpenseFormOpen(true);
   }
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWsId);
   const isCollective = activeWorkspace?.kind === 'household';
-  const myBalance = balances?.members.find((m) => m.user_id === user.id);
   const activeRecurringCount = recurringRules.filter((r) => r.is_active).length;
   const pendingSettlementsCount = settlements.filter((s) => s.status === 'pending').length;
-  const currentMeta = SECTION_META[activeSection];
+  const currentMeta = ROUTE_META[location.pathname] ?? ROUTE_META['/'];
 
   return (
     <div className="dashboard-layout">
-      {/* Backdrop para menu mobile */}
+      <a href="#main-content" className="skip-link">
+        Pular para o conteúdo principal
+      </a>
+
+      {/* Backdrop para o menu hambúrguer no mobile (DA-1 = C) */}
       <div
         className={`sidebar-backdrop ${mobileSidebarOpen ? 'backdrop-open' : ''}`}
         onClick={() => setMobileSidebarOpen(false)}
         aria-hidden="true"
       />
 
-      {/* === SIDEBAR DE NAVEGAÇÃO LATERAL === */}
+      {/* === SIDEBAR / DRAWER DE NAVEGAÇÃO (DA-1 = C + DA-5 = C) === */}
       <aside
         className={`sidebar ${mobileSidebarOpen ? 'sidebar-open' : ''}`}
         aria-label="Menu lateral de navegação"
       >
         <div className="sidebar-brand">
-          <span className="brand-icon">
-            <HomeIcon />
-          </span>
-          <div>
-            <div className="sidebar-brand-title">{household?.name ?? 'Finanças Família'}</div>
-            <div className="sidebar-brand-sub">Gestão Financeira Privada</div>
+          <div className="sidebar-brand-left">
+            <span className="brand-icon">
+              <HomeIcon />
+            </span>
+            <div>
+              <div className="sidebar-brand-title">{household?.name ?? 'Finanças Família'}</div>
+              <div className="sidebar-brand-sub">Gestão Financeira Privada</div>
+            </div>
           </div>
+
+          <button
+            type="button"
+            className="icon-btn sidebar-close-btn"
+            aria-label="Fechar menu"
+            onClick={() => setMobileSidebarOpen(false)}
+          >
+            ✕
+          </button>
         </div>
 
-        {/* Seletor rápido de Ambiente (Coletivo vs Individual) */}
+        {/* Seletor de Ambiente na Sidebar */}
         <div className="sidebar-ws-box" role="group" aria-label="Alternar ambiente ativo">
-          <span className="sidebar-ws-label">Ambiente Ativo (RLS)</span>
+          <span className="sidebar-ws-label">Ambiente</span>
           <div className="sidebar-ws-pills">
             {workspaces.map((ws) => {
               const active = ws.id === activeWsId;
@@ -604,40 +811,37 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
                 <button
                   key={ws.id}
                   type="button"
-                  className={`sidebar-ws-pill ${isPersonal ? 'pill-private' : ''}`}
+                  className="sidebar-ws-pill"
                   aria-pressed={active}
                   onClick={() => setActiveWsId(ws.id)}
                 >
-                  {isPersonal ? 'Individual' : 'Coletivo'}
+                  {isPersonal ? 'Individual 🔒' : 'Coletivo'}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Menu de Navegação por Seções Dedicadas */}
+        {/* Navegação por Rotas Declarativas (react-router v7) */}
         <nav className="sidebar-nav" aria-label="Seções do sistema">
-          <span className="sidebar-section-label">Financeiro</span>
+          <span className="sidebar-section-label">Principal</span>
 
-          <button
-            type="button"
-            className="nav-item"
-            aria-current={activeSection === 'expenses' ? 'page' : undefined}
-            onClick={() => handleSelectSection('expenses')}
-          >
+          <NavLink to="/" end className="nav-item">
             <span className="nav-item-left">
-              <WalletIcon />
-              <span>Visão Geral & Despesas</span>
+              <HomeIcon />
+              <span>Início</span>
+            </span>
+          </NavLink>
+
+          <NavLink to="/lancamentos" className="nav-item">
+            <span className="nav-item-left">
+              <ListIcon />
+              <span>Lançamentos</span>
             </span>
             <span className="nav-badge">{expenses.length}</span>
-          </button>
+          </NavLink>
 
-          <button
-            type="button"
-            className="nav-item"
-            aria-current={activeSection === 'settlements' ? 'page' : undefined}
-            onClick={() => handleSelectSection('settlements')}
-          >
+          <NavLink to="/saldos" className="nav-item">
             <span className="nav-item-left">
               <ScaleIcon />
               <span>Saldos & Reembolsos</span>
@@ -645,68 +849,43 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
             {pendingSettlementsCount > 0 && (
               <span className="nav-badge nav-badge-alert">{pendingSettlementsCount}</span>
             )}
-          </button>
+          </NavLink>
 
-          <button
-            type="button"
-            className="nav-item"
-            aria-current={activeSection === 'recurring' ? 'page' : undefined}
-            onClick={() => handleSelectSection('recurring')}
-          >
+          <NavLink to="/recorrentes" className="nav-item">
             <span className="nav-item-left">
               <RepeatIcon />
               <span>Recorrentes & Assinaturas</span>
             </span>
             <span className="nav-badge">{activeRecurringCount}</span>
-          </button>
+          </NavLink>
 
-          <button
-            type="button"
-            className="nav-item"
-            aria-current={activeSection === 'reports' ? 'page' : undefined}
-            onClick={() => handleSelectSection('reports')}
-          >
+          <NavLink to="/relatorios" className="nav-item">
             <span className="nav-item-left">
               <ChartIcon />
               <span>Relatórios (CSV / PDF)</span>
             </span>
-          </button>
+          </NavLink>
 
           <span className="sidebar-section-label">Automação & Cadastros</span>
 
-          <button
-            type="button"
-            className="nav-item"
-            aria-current={activeSection === 'android' ? 'page' : undefined}
-            onClick={() => handleSelectSection('android')}
-          >
+          <NavLink to="/android" className="nav-item">
             <span className="nav-item-left">
               <PhoneIcon />
-              <span>App Android & Fila</span>
+              <span>Captura Android & Fila</span>
             </span>
             <span className={`nav-badge ${bankImports.length > 0 ? 'nav-badge-alert' : ''}`}>
               {bankImports.length}
             </span>
-          </button>
+          </NavLink>
 
-          <button
-            type="button"
-            className="nav-item"
-            aria-current={activeSection === 'catalogs' ? 'page' : undefined}
-            onClick={() => handleSelectSection('catalogs')}
-          >
+          <NavLink to="/cadastros" className="nav-item">
             <span className="nav-item-left">
               <TagIcon />
-              <span>Categorias & Cartões</span>
+              <span>Cadastros</span>
             </span>
-          </button>
+          </NavLink>
 
-          <button
-            type="button"
-            className="nav-item"
-            aria-current={activeSection === 'notifications' ? 'page' : undefined}
-            onClick={() => handleSelectSection('notifications')}
-          >
+          <NavLink to="/notificacoes" className="nav-item">
             <span className="nav-item-left">
               <BellIcon />
               <span>Notificações</span>
@@ -714,10 +893,10 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
             <span className={`nav-badge ${unreadCount > 0 ? 'nav-badge-alert' : ''}`}>
               {unreadCount}
             </span>
-          </button>
+          </NavLink>
         </nav>
 
-        {/* Rodapé da Sidebar: Usuário Logado + Sair */}
+        {/* Rodapé da Sidebar */}
         <div className="sidebar-footer">
           <div className="sidebar-user-info">
             <span className="sidebar-user-name">{user.name}</span>
@@ -731,47 +910,113 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
         </div>
       </aside>
 
-      {/* === ÁREA PRINCIPAL (CABEÇALHO + KPIS + SEÇÃO ATIVA) === */}
+      {/* === ÁREA PRINCIPAL (BARRA SUPERIOR + ROTAS + FAB + SHEETS) === */}
       <div className="dashboard-main">
         <header className="main-header">
           <div className="main-header-left">
             <button
               type="button"
-              className="btn btn-outline btn-sm mobile-menu-btn"
+              className="icon-btn mobile-menu-btn"
               aria-label="Abrir menu de navegação"
               onClick={() => setMobileSidebarOpen((v) => !v)}
             >
               <MenuIcon />
             </button>
+            {location.pathname !== '/' && (
+              <button
+                type="button"
+                className="back-home-btn"
+                aria-label="Voltar ao Início"
+                onClick={() => navigate('/')}
+              >
+                ← Início
+              </button>
+            )}
             <div>
               <h1>{currentMeta.title}</h1>
-              <p className="subtitle">{currentMeta.subtitle}</p>
             </div>
           </div>
 
-          <div className="user-bar">
-            {activeWorkspace && (
-              <span className={`badge ${isCollective ? '' : 'badge-private'}`}>
-                {isCollective
-                  ? 'Espaço da Família (Coletivo)'
-                  : 'Meu Espaço Individual (Privado)'}
-              </span>
+          <div className="topbar-controls">
+            {/* Seletor compacto de Ambiente no topo */}
+            {workspaces.length > 0 && (
+              <div
+                className="ws-switcher-inline"
+                role="group"
+                aria-label="Seletor rápido de ambiente"
+              >
+                {workspaces.map((ws) => {
+                  const active = ws.id === activeWsId;
+                  const isPersonal = ws.kind === 'personal';
+                  return (
+                    <button
+                      key={ws.id}
+                      type="button"
+                      className="ws-chip-btn"
+                      aria-pressed={active}
+                      onClick={() => setActiveWsId(ws.id)}
+                    >
+                      {isPersonal ? 'Individual 🔒' : 'Coletivo'}
+                    </button>
+                  );
+                })}
+              </div>
             )}
+
+            {/* Botão 👁 Ocultar Valores (DA-4 = A) */}
             <button
               type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => handleSelectSection('notifications')}
+              className="icon-btn"
+              aria-label={hideValues ? 'Mostrar valores monetários' : 'Ocultar valores monetários'}
+              aria-pressed={hideValues}
+              title={hideValues ? 'Mostrar valores' : 'Ocultar valores'}
+              onClick={onToggleHideValues}
+            >
+              <EyeIcon off={hideValues} />
+            </button>
+
+            {/* Botão 🌙/☀️ Alternar Tema Escuro/Claro (DA-2 = C) */}
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}
+              title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}
+              onClick={onToggleTheme}
+            >
+              <ThemeIcon theme={theme} />
+            </button>
+
+            {/* Atalho de Notificações com Badge (alterna de volta ao Início se já estiver em /notificacoes) */}
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={
+                location.pathname === '/notificacoes'
+                  ? 'Voltar ao Início'
+                  : `Notificações (${unreadCount} não lidas)`
+              }
+              aria-pressed={location.pathname === '/notificacoes'}
+              title={location.pathname === '/notificacoes' ? 'Voltar ao Início' : 'Notificações'}
+              onClick={() =>
+                navigate(location.pathname === '/notificacoes' ? '/' : '/notificacoes')
+              }
             >
               <BellIcon />
-              <span>Alertas ({unreadCount})</span>
+              {unreadCount > 0 && <span className="icon-btn-badge">{unreadCount}</span>}
             </button>
-            <button type="button" className="btn btn-outline btn-sm" onClick={refreshAll}>
-              Atualizar
+
+            {/* Botão + Nova despesa no cabeçalho desktop (DA-1 = C) */}
+            <button
+              type="button"
+              className="btn btn-primary btn-sm btn-pill desktop-new-expense-btn"
+              onClick={openNewExpenseSheet}
+            >
+              + Nova despesa
             </button>
           </div>
         </header>
 
-        <main className="main-content">
+        <main id="main-content" className="main-content">
           {error && (
             <div className="alert-error" role="alert">
               <span>{error}</span>
@@ -785,156 +1030,199 @@ function DashboardScreen({ user, onLogout }: { user: User; onLogout: () => void 
             </div>
           )}
 
-          {/* Cards de KPI no Topo */}
-          <section className="kpi-grid" aria-label="Indicadores financeiros do ambiente ativo">
-            <div className="kpi-card">
-              <span className="kpi-label">
-                {isCollective ? 'Total Líquido (Família)' : 'Total Líquido (Individual)'}
-              </span>
-              <span className="kpi-value">{formatCentsBRL(totalCents)}</span>
-              <span className="kpi-sub">
-                {expenses.length} {expenses.length === 1 ? 'lançamento' : 'lançamentos'} no filtro
-              </span>
-            </div>
-
-            <div className="kpi-card">
-              <span className="kpi-label">Minha Posição na Casa</span>
-              <span className="kpi-value">
-                {myBalance
-                  ? myBalance.net_cents > 0
-                    ? `+${formatCentsBRL(myBalance.net_cents)}`
-                    : formatCentsBRL(myBalance.net_cents)
-                  : 'R$ 0,00'}
-              </span>
-              <span className="kpi-sub">
-                {myBalance
-                  ? myBalance.net_cents > 0
-                    ? 'A receber dos familiares'
-                    : myBalance.net_cents < 0
-                      ? 'A reembolsar aos familiares'
-                      : 'Quitado no ambiente coletivo'
-                  : 'Calculando saldos…'}
-              </span>
-            </div>
-
-            <div className="kpi-card">
-              <span className="kpi-label">Assinaturas & Recorrentes</span>
-              <span className="kpi-value">{activeRecurringCount}</span>
-              <span className="kpi-sub">
-                {recurringRules.length} cadastradas neste ambiente
-              </span>
-            </div>
-
-            <div className="kpi-card">
-              <span className="kpi-label">Fila Bancária Android</span>
-              <span className="kpi-value">{bankImports.length}</span>
-              <span className="kpi-sub">
-                {bankImports.length === 0
-                  ? 'Nenhuma notificação pendente'
-                  : 'Aguardando sua revisão privada'}
-              </span>
-            </div>
-          </section>
-
-          {/* Renderização Exclusiva da Seção Selecionada na Sidebar */}
-          {activeSection === 'expenses' && (
-            <ExpensesSection
-              user={user}
-              household={household}
-              activeWsId={activeWsId}
-              isCollective={isCollective}
-              categories={categories}
-              paymentMethods={paymentMethods}
-              expenses={expenses}
-              totalCents={totalCents}
-              filterFrom={filterFrom}
-              filterTo={filterTo}
-              filterCatId={filterCatId}
-              onFilterFromChange={setFilterFrom}
-              onFilterToChange={setFilterTo}
-              onFilterCatChange={setFilterCatId}
-              onRefresh={refreshAll}
-              onError={setError}
-            />
-          )}
-
-          {activeSection === 'settlements' && (
-            <SettlementsSection
-              user={user}
-              household={household}
-              balances={balances}
-              settlements={settlements}
-              onRefresh={refreshAll}
-              onError={setError}
-            />
-          )}
-
-          {activeSection === 'recurring' && (
-            <RecurringSection
-              user={user}
-              household={household}
-              activeWsId={activeWsId}
-              isCollective={isCollective}
-              categories={categories}
-              paymentMethods={paymentMethods}
-              recurringRules={recurringRules}
-              onRefresh={refreshAll}
-              onError={setError}
-            />
-          )}
-
-          {activeSection === 'reports' && (
-            <ReportsSection
-              activeWsId={activeWsId}
-              isCollective={isCollective}
-              reportSummary={reportSummary}
-              filterFrom={filterFrom}
-              filterTo={filterTo}
-              onFilterFromChange={setFilterFrom}
-              onFilterToChange={setFilterTo}
-            />
-          )}
-
-          {activeSection === 'android' && (
-            <AndroidImportsSection
-              workspaces={workspaces}
-              activeWsId={activeWsId}
-              categories={categories}
-              devices={devices}
-              bankImports={bankImports}
-              onRefresh={refreshAll}
-              onError={setError}
-            />
-          )}
-
-          {activeSection === 'catalogs' && (
-            <CatalogsSection
-              user={user}
-              household={household}
-              categories={categories}
-              paymentMethods={paymentMethods}
-              onCategoryCreated={(cat) =>
-                setCategories((prev) =>
-                  [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)),
-                )
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <HomeSection
+                  user={user}
+                  isCollective={isCollective}
+                  period={period}
+                  onPeriodChange={setPeriod}
+                  totalCents={totalCents}
+                  expenses={expenses}
+                  reportSummary={reportSummary}
+                  balances={balances}
+                  settlements={settlements}
+                  recurringRules={recurringRules}
+                  bankImports={bankImports}
+                  hideValues={hideValues}
+                  onOpenNewExpense={openNewExpenseSheet}
+                  onSelectExpense={setSelectedExpense}
+                  onFilterCategoryAndNavigate={handleFilterCategoryFromHome}
+                />
               }
-              onPaymentMethodCreated={(pm) =>
-                setPaymentMethods((prev) =>
-                  [...prev, pm].sort((a, b) => a.name.localeCompare(b.name)),
-                )
-              }
-              onError={setError}
             />
-          )}
 
-          {activeSection === 'notifications' && (
-            <NotificationsSection
-              notifications={notifications}
-              unreadCount={unreadCount}
-              onRefresh={loadNotifications}
+            <Route
+              path="/lancamentos"
+              element={
+                <ExpensesSection
+                  isCollective={isCollective}
+                  categories={categories}
+                  expenses={expenses}
+                  totalCents={totalCents}
+                  period={period}
+                  onPeriodChange={setPeriod}
+                  filterCatId={filterCatId}
+                  onFilterCatChange={handleCategoryFilterChange}
+                  hideValues={hideValues}
+                  onOpenNewExpense={openNewExpenseSheet}
+                  onSelectExpense={setSelectedExpense}
+                />
+              }
             />
-          )}
+
+            <Route
+              path="/saldos"
+              element={
+                <SettlementsSection
+                  user={user}
+                  household={household}
+                  balances={balances}
+                  settlements={settlements}
+                  hideValues={hideValues}
+                  onRefresh={refreshAll}
+                  onError={setError}
+                />
+              }
+            />
+
+            <Route
+              path="/recorrentes"
+              element={
+                <RecurringSection
+                  user={user}
+                  household={household}
+                  activeWsId={activeWsId}
+                  isCollective={isCollective}
+                  categories={categories}
+                  paymentMethods={paymentMethods}
+                  recurringRules={recurringRules}
+                  hideValues={hideValues}
+                  onRefresh={refreshAll}
+                  onError={setError}
+                />
+              }
+            />
+
+            <Route
+              path="/relatorios"
+              element={
+                <ReportsSection
+                  activeWsId={activeWsId}
+                  isCollective={isCollective}
+                  reportSummary={reportSummary}
+                  period={period}
+                  onPeriodChange={setPeriod}
+                  hideValues={hideValues}
+                />
+              }
+            />
+
+            <Route
+              path="/android"
+              element={
+                <AndroidImportsSection
+                  workspaces={workspaces}
+                  activeWsId={activeWsId}
+                  categories={categories}
+                  devices={devices}
+                  bankImports={bankImports}
+                  hideValues={hideValues}
+                  onRefresh={refreshAll}
+                  onError={setError}
+                />
+              }
+            />
+
+            <Route
+              path="/cadastros"
+              element={
+                <CatalogsSection
+                  user={user}
+                  household={household}
+                  categories={categories}
+                  paymentMethods={paymentMethods}
+                  onCategoryCreated={(cat) =>
+                    setCategories((prev) =>
+                      [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)),
+                    )
+                  }
+                  onPaymentMethodCreated={(pm) =>
+                    setPaymentMethods((prev) =>
+                      [...prev, pm].sort((a, b) => a.name.localeCompare(b.name)),
+                    )
+                  }
+                  onError={setError}
+                />
+              }
+            />
+
+            <Route
+              path="/notificacoes"
+              element={
+                <NotificationsSection
+                  notifications={notifications}
+                  unreadCount={unreadCount}
+                  onRefresh={loadNotifications}
+                  onBackHome={() => navigate('/')}
+                />
+              }
+            />
+
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
+
+        {/* Botão Flutuante FAB "+" no Mobile (DA-1 = C) */}
+        <button
+          type="button"
+          className="fab-btn"
+          aria-label="Nova despesa"
+          title="Nova despesa"
+          onClick={openNewExpenseSheet}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M12 5v14M5 12h14"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+
+        {/* Sheet / Modal: Nova ou Editar Despesa */}
+        <ExpenseFormSheet
+          open={expenseFormOpen}
+          onClose={() => setExpenseFormOpen(false)}
+          editingExpense={editingExpense}
+          user={user}
+          household={household}
+          activeWsId={activeWsId}
+          isCollective={isCollective}
+          categories={categories}
+          paymentMethods={paymentMethods}
+          onPaymentMethodCreated={(pm) =>
+            setPaymentMethods((prev) =>
+              [...prev, pm].sort((a, b) => a.name.localeCompare(b.name)),
+            )
+          }
+          onSaved={refreshAll}
+          onError={setError}
+        />
+
+        {/* Sheet / Modal: Detalhes da Despesa (divisões, estorno, compartilhar, editar, excluir) */}
+        <ExpenseDetailSheet
+          expense={selectedExpense}
+          isCollective={isCollective}
+          hideValues={hideValues}
+          onClose={() => setSelectedExpense(null)}
+          onEdit={(exp) => openEditExpenseSheet(exp)}
+          onRefresh={refreshAll}
+          onError={setError}
+        />
       </div>
     </div>
   );
